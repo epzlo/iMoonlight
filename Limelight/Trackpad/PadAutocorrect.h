@@ -15,7 +15,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PadAutocorrect : NSObject
+/// What the keyboard needs from an autocorrect engine (English or Portuguese).
+@protocol PadCorrector <NSObject>
+- (void)learn:(NSString*)word;
+- (nullable NSString*)correct:(NSString*)word previous:(nullable NSString*)previous;
+@end
+
+@interface PadAutocorrect : NSObject <PadCorrector>
 
 /// Shared instance; the word lists load in the background the first time.
 + (instancetype)shared;
@@ -28,6 +34,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// The same, using the word typed before it in the same sentence (or nil at the start of one).
 - (nullable NSString*)correct:(NSString*)word previous:(nullable NSString*)previous;
 
+@end
+
+/// Autocorreção em português do Brasil (words-pt.txt, frequências do wordfreq).
+/// Põe os acentos que faltam ("nao" → "não", "voce" → "você", "acao" → "ação"), corrige um
+/// deslize de digitação (tecla vizinha, letra trocada, faltando ou sobrando) e respeita
+/// abreviações de conversa ("vc", "pq", "kkk"). Palavras que o usuário mantém são lembradas.
+@interface PadAutocorrectPT : NSObject <PadCorrector>
++ (instancetype)shared;
 @end
 
 NS_ASSUME_NONNULL_END

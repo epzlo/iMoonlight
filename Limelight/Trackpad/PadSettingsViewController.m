@@ -44,20 +44,22 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
 - (instancetype)init {
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {
-        self.title = @"Trackpad settings";
+        self.title = @"Ajustes do controle";
         _rows = @[
-            @[[PadSettingRow slider:@"Pointer speed" key:PadKeySensitivity min:0.5 max:5],
-              [PadSettingRow slider:@"Pointer acceleration" key:PadKeyAcceleration min:0 max:2],
-              [PadSettingRow slider:@"Scroll speed" key:PadKeyScrollSpeed min:0.5 max:5],
-              [PadSettingRow slider:@"Pinch zoom speed" key:PadKeyZoomSpeed min:0.2 max:3],
-              [PadSettingRow toggle:@"Classic scroll direction" detail:@"Fingers down scrolls down, like a mouse wheel" key:PadKeyInvertScroll]],
-            @[[PadSettingRow toggle:@"Swap screens" detail:@"Trackpad on top, stream underneath" key:PadKeySwapScreens],
-              [PadSettingRow toggle:@"Finger hints" detail:@"Shows the gesture cheat sheet along the bottom of the trackpad" key:PadKeyShowHints],
-              [PadSettingRow toggle:@"Dim when idle" detail:@"After 30 seconds without a touch the trackpad dims; the next touch only wakes it" key:PadKeyDimWhenIdle]],
-            @[[PadSettingRow toggle:@"Autocorrect" detail:@"Fixes misspelled and run-together words when you finish them. Tap the suggestion to keep your spelling" key:PadKeyAutocorrect],
-              [PadSettingRow toggle:@"Auto-capitalization" detail:@"Capital letter at the start of each sentence" key:PadKeyAutoCapitalize],
-              [PadSettingRow toggle:@"\".\" shortcut" detail:@"Tapping space twice types a period and a space" key:PadKeyDoubleSpacePeriod],
-              [PadSettingRow toggle:@"Type when the finger lifts" detail:@"Lets you slide onto the right key before it types" key:PadKeyTypeOnRelease]],
+            @[[PadSettingRow slider:@"Velocidade do ponteiro" key:PadKeySensitivity min:0.5 max:5],
+              [PadSettingRow slider:@"Aceleração do ponteiro" key:PadKeyAcceleration min:0 max:2],
+              [PadSettingRow slider:@"Velocidade da rolagem" key:PadKeyScrollSpeed min:0.5 max:5],
+              [PadSettingRow slider:@"Velocidade do zoom no PC (pinça)" key:PadKeyZoomSpeed min:0.2 max:3],
+              [PadSettingRow toggle:@"Rolagem clássica" detail:@"Dedos para baixo rolam para baixo, como a roda do mouse" key:PadKeyInvertScroll]],
+            @[[PadSettingRow toggle:@"Inverter telas" detail:@"Touchpad em cima, imagem do PC embaixo (retrato)" key:PadKeySwapScreens],
+              [PadSettingRow toggle:@"Dicas de gestos" detail:@"Mostra a cola dos gestos no pé do touchpad" key:PadKeyShowHints],
+              [PadSettingRow toggle:@"Escurecer parado" detail:@"Depois de 30 s sem toque o touchpad escurece; o próximo toque só acorda" key:PadKeyDimWhenIdle]],
+            @[[PadSettingRow toggle:@"Autocorreção" detail:@"Corrige a palavra ao terminá-la e põe os acentos que faltam (nao → não). Toque na sugestão para manter o que digitou" key:PadKeyAutocorrect],
+              [PadSettingRow toggle:@"Maiúscula automática" detail:@"Maiúscula no começo de cada frase" key:PadKeyAutoCapitalize],
+              [PadSettingRow toggle:@"Atalho do \".\"" detail:@"Dois toques no espaço digitam ponto e espaço" key:PadKeyDoubleSpacePeriod],
+              [PadSettingRow toggle:@"Português do Brasil" detail:@"Linha de acentos (´ ~ ^ `), ç e autocorreção em português. Desligado: teclado e autocorreção em inglês" key:PadKeyPortuguese],
+              [PadSettingRow toggle:@"PC com teclas mortas (EUA internacional)" detail:@"Acentos saem como ' + a, igual ao teclado do PC. Desligue se o layout do PC não tiver teclas mortas" key:PadKeyDeadKeys],
+              [PadSettingRow toggle:@"Digitar ao soltar o dedo" detail:@"Dá para deslizar até a tecla certa antes de digitar" key:PadKeyTypeOnRelease]],
             @[],
         ];
     }
@@ -83,16 +85,16 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
 
 - (NSString*)tableView:(UITableView*)tableView titleForHeaderInSection:(NSInteger)section {
     switch (section) {
-        case SectionTrackpad: return @"Trackpad";
-        case SectionLayout: return @"Screen";
-        case SectionKeyboard: return @"Keyboard";
-        default: return @"Haptics";
+        case SectionTrackpad: return @"Touchpad";
+        case SectionLayout: return @"Tela";
+        case SectionKeyboard: return @"Teclado";
+        default: return @"Vibração";
     }
 }
 
 - (NSString*)tableView:(UITableView*)tableView titleForFooterInSection:(NSInteger)section {
     if (section == SectionHaptics) {
-        return @"Each action gets its own feel and strength. Every change plays a preview.";
+        return @"Cada ação tem a sua vibração e intensidade. Toda mudança toca uma amostra.";
     }
     return nil;
 }

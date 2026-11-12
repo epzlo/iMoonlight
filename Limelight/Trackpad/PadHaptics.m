@@ -9,15 +9,15 @@
 #import <UIKit/UIKit.h>
 
 static NSString* const ACTION_NAMES[] = {
-    @"Click", @"Right click", @"Drag start", @"Drag end", @"Press and hold",
-    @"Scroll wheel notch", @"Keyboard key", @"Clear all", @"Top bar buttons",
-    @"Back / forward swipe", @"Three-finger swipe"
+    @"Clique", @"Clique direito", @"Início do arraste", @"Fim do arraste", @"Segurar",
+    @"Passo da rolagem", @"Tecla do teclado", @"Apagar tudo", @"Botões da barra",
+    @"Voltar / avançar", @"Gesto de três dedos"
 };
 static NSString* const ACTION_KEYS[] = {
     @"click", @"right_click", @"drag_start", @"drag_end", @"hold", @"scroll", @"key",
     @"clear_all", @"bar", @"navigate", @"three_finger"
 };
-static NSString* const FEEL_NAMES[] = { @"Off", @"Tick", @"Click", @"Heavy", @"Double", @"Buzz" };
+static NSString* const FEEL_NAMES[] = { @"Desligado", @"Tique", @"Clique", @"Forte", @"Duplo", @"Zumbido" };
 
 static const PadHapticFeel DEFAULT_FEEL[] = {
     PadFeelClick, PadFeelDouble, PadFeelHeavy, PadFeelTick, PadFeelHeavy, PadFeelTick,

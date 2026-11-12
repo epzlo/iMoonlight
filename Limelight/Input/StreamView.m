@@ -7,6 +7,9 @@
 //
 
 #import "StreamView.h"
+#if !TARGET_OS_TV
+#import "PadOutput.h"
+#endif
 #include <Limelight.h>
 #import "DataManager.h"
 #import "ControllerSupport.h"
@@ -833,6 +836,10 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
             usleep(50 * 1000);
             LiSendKeyboardEvent(0x08, KEY_ACTION_UP, 0);
         } else {
+#if !TARGET_OS_TV
+            // Teclado do iPhone: mesmo caminho do teclado do app, com acentos por tecla morta.
+            [[PadOutput shared] typeText:[inputText substringFromIndex:1]];
+#else
             // Character 0 will be our known sentinel value
             
             // Check if any characters exist which can't be represented in a basic key event
@@ -854,6 +861,7 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
                 assert(event.keycode != 0);
                 [self sendLowLevelEvent:event];
             }
+#endif
         }
     });
     

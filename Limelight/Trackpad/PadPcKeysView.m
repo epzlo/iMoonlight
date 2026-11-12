@@ -64,8 +64,8 @@ static PcKey* key(NSString* label, NSString* sub, PcKeyType type, CGFloat weight
         self.contentMode = UIViewContentModeRedraw;
         _down = [NSMapTable strongToStrongObjectsMapTable];
         _held = [NSMutableArray array];
-        _letters = key(@"⌨️ ABC", nil, PcKeyLetters, 0, NO, @[]);
-        _close = key(@"✕ Close", nil, PcKeyClose, 0, NO, @[]);
+        _letters = key(@"ABC", nil, PcKeyLetters, 0, NO, @[]);
+        _close = key(@"✕ Fechar", nil, PcKeyClose, 0, NO, @[]);
 
         NSMutableArray* r1 = [NSMutableArray arrayWithObject:key(@"Esc", nil, PcKeyEscape, 1, NO, @[@(PadVkEscape)])];
         NSMutableArray* r2 = [NSMutableArray arrayWithObject:key(@"Tab", nil, PcKeyNormal, 1, NO, @[@(PadVkTab)])];
@@ -75,12 +75,19 @@ static PcKey* key(NSString* label, NSString* sub, PcKeyType type, CGFloat weight
         _rows = @[
             r1,
             r2,
-            @[key(@"Alt+Tab", @"switch app", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkTab)]),
-              key(@"Win+Tab", @"task view", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkTab)]),
-              key(@"Win+D", @"desktop", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkD)])],
-            @[key(@"Alt+F4", @"close app", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkF4)]),
-              key(@"Ctrl+Shift+Esc", @"task manager", PcKeyShortcut, 1.45, NO, @[@(PadVkCtrl), @(PadVkShift), @(PadVkEscape)]),
-              key(@"PrtSc", @"screenshot", PcKeyShortcut, 1, NO, @[@(PadVkPrintScreen)])],
+            // Atalhos do KDE Plasma (KWin) deste PC.
+            @[key(@"Alt+Tab", @"trocar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkTab)]),
+              key(@"Super+W", @"visão geral", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkW)]),
+              key(@"Super+D", @"área de trabalho", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkD)]),
+              key(@"Super", @"menu", PcKeyShortcut, 0.8, NO, @[@(PadVkWin)])],
+            @[key(@"Alt+F4", @"fechar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkF4)]),
+              key(@"Ctrl+Shift+Esc", @"monitor do sistema", PcKeyShortcut, 1.45, NO, @[@(PadVkCtrl), @(PadVkShift), @(PadVkEscape)]),
+              key(@"PrtSc", @"Spectacle", PcKeyShortcut, 1, NO, @[@(PadVkPrintScreen)]),
+              key(@"Super+V", @"área de transf.", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkV)])],
+            // O Sunshine troca o monitor transmitido com Ctrl+Alt+Shift+F1/F2 e mostra o cursor com +N.
+            @[key(@"Principal", @"monitor AOC", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF2)]),
+              key(@"Vertical", @"monitor Samsung", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF1)]),
+              key(@"Cursor", @"mostrar/ocultar", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkN)])],
             @[key(@"Home", nil, PcKeyNormal, 1, NO, @[@(PadVkHome)]),
               key(@"End", nil, PcKeyNormal, 1, NO, @[@(PadVkEnd)]),
               key(@"PgUp", nil, PcKeyNormal, 1, YES, @[@(PadVkPageUp)]),
@@ -91,7 +98,7 @@ static PcKey* key(NSString* label, NSString* sub, PcKeyType type, CGFloat weight
             @[key(@"Ctrl", nil, PcKeyModifier, 1, NO, @[@(PadVkCtrl)]),
               key(@"Alt", nil, PcKeyModifier, 1, NO, @[@(PadVkAlt)]),
               key(@"Shift", nil, PcKeyModifier, 1, NO, @[@(PadVkShift)]),
-              key(@"⊞ Win", nil, PcKeyModifier, 1, NO, @[@(PadVkWin)]),
+              key(@"Super", nil, PcKeyModifier, 1, NO, @[@(PadVkWin)]),
               key(@"←", nil, PcKeyNormal, 1, YES, @[@(PadVkLeft)]),
               key(@"↓", nil, PcKeyNormal, 1, YES, @[@(PadVkDown)]),
               key(@"→", nil, PcKeyNormal, 1, YES, @[@(PadVkRight)])],
@@ -146,7 +153,7 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
     [[UIColor blackColor] setFill];
     UIRectFill(self.bounds);
     CGFloat hair = 1;
-    [rgb(0x11, 0x13, 0x17) setFill];
+    [rgb(0x16, 0x11, 0x0f) setFill];
     UIRectFill(CGRectMake(_stripRect.origin.x, _stripRect.origin.y, _stripRect.size.width - hair, _stripRect.size.height - hair));
     [self drawStrip];
     [self drawKey:_letters hair:hair];
@@ -164,18 +171,18 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
     UIFont* font;
     UIColor* color;
     if (_held.count == 0) {
-        text = @"Ctrl, Alt, Shift and Win stay held for the next key";
+        text = @"Ctrl, Alt, Shift e Super ficam presos até a próxima tecla";
         font = [UIFont systemFontOfSize:h * 0.27];
-        color = rgb(0x6e, 0x73, 0x7d);
+        color = rgb(0x7d, 0x70, 0x68);
     } else {
         NSMutableString* combo = [NSMutableString string];
         for (PcKey* k in _held) {
-            [combo appendFormat:@"%@ + ", [k.label stringByReplacingOccurrencesOfString:@"⊞ " withString:@""]];
+            [combo appendFormat:@"%@ + ", k.label];
         }
         [combo appendString:@"…"];
         text = combo;
         font = [UIFont boldSystemFontOfSize:h * 0.38];
-        color = rgb(0x78, 0xc8, 0xff);
+        color = rgb(0xc8, 0xa1, 0x5a);
     }
     [text drawWithRect:CGRectMake(x, cy - font.lineHeight, maxX - x, font.lineHeight * 2)
                options:NSStringDrawingUsesLineFragmentOrigin
@@ -198,20 +205,20 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
 - (void)drawKey:(PcKey*)k hair:(CGFloat)hair {
     UIColor* bg;
     UIColor* fg;
-    UIColor* subFg = rgb(0x8a, 0x90, 0x9b);
+    UIColor* subFg = rgb(0x9a, 0x8c, 0x82);
     CGFloat rh = MIN(_rowHeight, 100);
     CGFloat size = rh * 0.26;
     BOOL bold = NO;
     switch (k.type) {
         case PcKeyClose:
-            bg = rgb(0x4a, 0x22, 0x28);
-            fg = rgb(0xff, 0xb3, 0xba);
+            bg = rgb(0x4a, 0x16, 0x1a);
+            fg = rgb(0xff, 0xb8, 0xb0);
             size = STRIP_HEIGHT * 0.36;
             bold = YES;
             break;
         case PcKeyLetters:
-            bg = rgb(0x2c, 0x30, 0x39);
-            fg = rgb(0xcf, 0xd6, 0xe2);
+            bg = rgb(0x33, 0x29, 0x25);
+            fg = rgb(0xe0, 0xd5, 0xc8);
             size = STRIP_HEIGHT * 0.34;
             bold = YES;
             break;
@@ -220,33 +227,33 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
             fg = rgb(0xff, 0xc7, 0xcd);
             break;
         case PcKeyShortcut:
-            bg = rgb(0x1d, 0x2a, 0x36);
-            fg = rgb(0xbf, 0xe6, 0xff);
-            subFg = rgb(0x7f, 0xa3, 0xbf);
+            bg = rgb(0x2b, 0x21, 0x16);
+            fg = rgb(0xef, 0xe7, 0xde);
+            subFg = rgb(0xb0, 0x92, 0x5e);
             size = rh * (k.label.length > 10 ? 0.17 : 0.21);
             break;
         case PcKeyModifier: {
             BOOL on = [_held containsObject:k];
-            bg = on ? rgb(0x24, 0x50, 0x6e) : rgb(0x2c, 0x30, 0x39);
-            fg = on ? [UIColor whiteColor] : rgb(0xcf, 0xd6, 0xe2);
-            subFg = rgb(0xbf, 0xe6, 0xff);
+            bg = on ? rgb(0x7a, 0x1c, 0x21) : rgb(0x33, 0x29, 0x25);
+            fg = on ? [UIColor whiteColor] : rgb(0xe0, 0xd5, 0xc8);
+            subFg = rgb(0xef, 0xe7, 0xde);
             size = rh * 0.22;
             break;
         }
         case PcKeyFn:
-            bg = rgb(0x24, 0x26, 0x2d);
-            fg = rgb(0xe6, 0xe9, 0xef);
+            bg = rgb(0x24, 0x1d, 0x1a);
+            fg = rgb(0xef, 0xe7, 0xde);
             size = rh * 0.22;
             break;
         default:
-            bg = rgb(0x24, 0x26, 0x2d);
+            bg = rgb(0x24, 0x1d, 0x1a);
             fg = [UIColor whiteColor];
             if (k.label.length == 1) size = rh * 0.3;
             else size = rh * 0.2;
             break;
     }
     if ([self isDown:k]) {
-        bg = rgb(0x78, 0xc8, 0xff);
+        bg = rgb(0xc8, 0xa1, 0x5a);
         fg = subFg = [UIColor blackColor];
     }
     [bg setFill];
@@ -258,7 +265,7 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
         size *= (k.rect.size.width - 8) / fit;
         font = bold ? [UIFont boldSystemFontOfSize:size] : [UIFont systemFontOfSize:size];
     }
-    NSString* sub = (k.type == PcKeyModifier && [_held containsObject:k]) ? @"held" : k.sub;
+    NSString* sub = (k.type == PcKeyModifier && [_held containsObject:k]) ? @"preso" : k.sub;
     CGPoint c = CGPointMake(CGRectGetMidX(k.rect), CGRectGetMidY(k.rect));
     if (sub == nil) {
         drawCenteredAt(k.label, c, font, fg);

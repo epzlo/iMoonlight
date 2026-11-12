@@ -38,4 +38,30 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+@class PadLandscapeView;
+
+@protocol PadLandscapeViewDelegate <NSObject>
+- (void)landscapeWantsSettings:(PadLandscapeView*)view;
+- (void)landscapeWantsDisconnect:(PadLandscapeView*)view;
+- (void)landscapeWantsVideoToggled:(PadLandscapeView*)view;
+/// Zoom local da imagem (1 = tela inteira, sem zoom).
+- (void)landscape:(PadLandscapeView*)view wantsZoom:(CGFloat)zoom;
+@end
+
+/// Celular deitado: a imagem do PC ocupa a tela e uma faixa vertical de funções fica à
+/// esquerda. Cada função abre um painel feito para a tela deitada: teclado e teclas do PC
+/// embaixo, touchpad translúcido à direita (a imagem continua visível), zoom e monitores em
+/// cartões pequenos. Toques fora da faixa e do painel aberto vão direto para a imagem.
+@interface PadLandscapeView : UIView
+
+@property (nonatomic, weak, nullable) id<PadLandscapeViewDelegate> delegate;
+/// Largura da faixa, já contando a margem segura da esquerda.
+@property (nonatomic, readonly) CGFloat stripWidth;
+@property (nonatomic) CGFloat zoom;
+
+/// Fecha o painel aberto e solta qualquer tecla presa.
+- (void)resetInput;
+
+@end
+
 NS_ASSUME_NONNULL_END

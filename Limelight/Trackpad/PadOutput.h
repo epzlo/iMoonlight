@@ -28,9 +28,20 @@ enum {
     PadVkPrintScreen = 0x2C,
     PadVkDelete = 0x2E,
     PadVkA = 0x41,
+    PadVkC = 0x43,
     PadVkD = 0x44,
+    PadVkL = 0x4C,
+    PadVkN = 0x4E,
+    PadVkQ = 0x51,
+    PadVkT = 0x54,
+    PadVkV = 0x56,
+    PadVkW = 0x57,
+    PadVkX = 0x58,
+    PadVkZ = 0x5A,
+    /// Super / Meta no Linux (a tecla Windows).
     PadVkWin = 0x5B,
     PadVkF1 = 0x70,
+    PadVkF2 = 0x71,
     PadVkF4 = 0x73,
     PadVkShift = 0xA0,
     PadVkCtrl = 0xA2,
@@ -71,6 +82,9 @@ typedef NS_ENUM(NSInteger, PadSpecialKey) {
 
 /// Presses these keys together (modifiers first), then lets go in reverse order.
 - (void)pressKeys:(NSArray<NSNumber*>*)codes;
+/// Digita o texto. Com o layout "EUA internacional" (PadSettings deadKeys), acentos e ç saem
+/// como teclas mortas (' + a = á, ~ + a = ã, ^ + e = ê, ' + c = ç) e as próprias ' " ` ~ ^
+/// como tecla + espaço, o que funciona em qualquer app do KDE; o resto vai como texto UTF-8.
 - (void)typeText:(NSString*)text;
 - (void)special:(PadSpecialKey)key;
 

@@ -5,6 +5,7 @@
 
 #import "PadOutput.h"
 #import "KeyboardSupport.h"
+#import "PadSettings.h"
 
 #include <Limelight.h>
 
@@ -152,29 +153,84 @@ static char modifierFlagFor(int code) {
     });
 }
 
+/// Aperta e solta uma tecla traduzida, com o Shift que ela pedir. Roda na fila de teclas.
+static void sendTranslated(struct KeyEvent event) {
+    if (event.modifier != 0) {
+        LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_DOWN, event.modifier);
+    }
+    LiSendKeyboardEvent2(event.keycode, KEY_ACTION_DOWN, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
+    usleep(KEY_HOLD_US);
+    LiSendKeyboardEvent2(event.keycode, KEY_ACTION_UP, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
+    if (event.modifier != 0) {
+        LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_UP, 0);
+    }
+}
+
+static BOOL sendChar(unichar c) {
+    struct KeyEvent event = [KeyboardSupport translateKeyEvent:c withModifierFlags:0];
+    if (event.keycode == 0) return NO;
+    sendTranslated(event);
+    return YES;
+}
+
+/// A tecla morta que faz este acento no layout EUA internacional, ou 0.
+static unichar deadKeyFor(unichar mark) {
+    switch (mark) {
+        case 0x0301: return '\'';  // agudo: á é í ó ú
+        case 0x0300: return '`';   // grave: à
+        case 0x0302: return '^';   // circunflexo: â ê ô
+        case 0x0303: return '~';   // til: ã õ
+        case 0x0308: return '"';   // trema: ü
+        case 0x0327: return '\'';  // cedilha: ' + c = ç
+        default: return 0;
+    }
+}
+
+static BOOL isDeadKeyChar(unichar c) {
+    return c == '\'' || c == '"' || c == '`' || c == '~' || c == '^';
+}
+
+/// Tenta digitar um caractere acentuado com tecla morta + letra.
+static BOOL sendWithDeadKey(NSString* one) {
+    NSString* d = one.decomposedStringWithCanonicalMapping;
+    if (d.length != 2) return NO;
+    unichar base = [d characterAtIndex:0];
+    unichar dead = deadKeyFor([d characterAtIndex:1]);
+    if (dead == 0 || base > 0x7F) return NO;
+    struct KeyEvent deadEvent = [KeyboardSupport translateKeyEvent:dead withModifierFlags:0];
+    struct KeyEvent baseEvent = [KeyboardSupport translateKeyEvent:base withModifierFlags:0];
+    if (deadEvent.keycode == 0 || baseEvent.keycode == 0) return NO;
+    sendTranslated(deadEvent);
+    sendTranslated(baseEvent);
+    return YES;
+}
+
 - (void)typeText:(NSString*)text {
     NSString* copy = [text copy];
+    BOOL dead = [PadSettings deadKeys];
     dispatch_async(_keyQueue, ^{
-        for (NSUInteger i = 0; i < copy.length; i++) {
-            unichar c = [copy characterAtIndex:i];
-            struct KeyEvent event = [KeyboardSupport translateKeyEvent:c withModifierFlags:0];
-            if (event.keycode == 0) {
-                // Not on a US keyboard: send it as text instead.
-                NSString* one = [copy substringWithRange:[copy rangeOfComposedCharacterSequenceAtIndex:i]];
-                const char* utf8 = one.UTF8String;
-                LiSendUtf8TextEvent(utf8, (unsigned int)strlen(utf8));
-                i += one.length - 1;
-                continue;
+        for (NSUInteger i = 0; i < copy.length; ) {
+            NSRange r = [copy rangeOfComposedCharacterSequenceAtIndex:i];
+            NSString* one = [copy substringWithRange:r];
+            i = NSMaxRange(r);
+            if (one.length == 1) {
+                unichar c = [one characterAtIndex:0];
+                if (c == '\n' || c == '\r') {
+                    LiSendKeyboardEvent(0x8000 | PadVkEnter, KEY_ACTION_DOWN, 0);
+                    usleep(KEY_HOLD_US);
+                    LiSendKeyboardEvent(0x8000 | PadVkEnter, KEY_ACTION_UP, 0);
+                    continue;
+                }
+                if (dead && isDeadKeyChar(c)) {
+                    // Sozinha, a tecla morta espera a próxima letra: o espaço a solta como está.
+                    if (sendChar(c)) { sendChar(' '); continue; }
+                }
+                if (sendChar(c)) continue;
             }
-            if (event.modifier != 0) {
-                LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_DOWN, event.modifier);
-            }
-            LiSendKeyboardEvent2(event.keycode, KEY_ACTION_DOWN, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
-            usleep(KEY_HOLD_US);
-            LiSendKeyboardEvent2(event.keycode, KEY_ACTION_UP, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
-            if (event.modifier != 0) {
-                LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_UP, 0);
-            }
+            if (dead && sendWithDeadKey(one)) continue;
+            // Fora do teclado americano: vai como texto.
+            const char* utf8 = one.UTF8String;
+            LiSendUtf8TextEvent(utf8, (unsigned int)strlen(utf8));
         }
     });
 }

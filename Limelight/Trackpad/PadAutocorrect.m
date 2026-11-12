@@ -549,3 +549,168 @@ static NSString* matchCase(NSString* typed, NSString* fix) {
 }
 
 @end
+
+
+#pragma mark - Português do Brasil
+
+static NSString* const LEARNED_KEY_PT = @"pad.autocorrect.learned.pt";
+
+/// Tira acentos e cedilha, para comparar "nao" com "não".
+static NSString* foldPT(NSString* s) {
+    return [s stringByFoldingWithOptions:NSDiacriticInsensitiveSearch locale:[NSLocale localeWithLocaleIdentifier:@"pt_BR"]];
+}
+
+@implementation PadAutocorrectPT {
+    NSMutableSet<NSString*>* _learned;
+    NSDictionary<NSString*, NSNumber*>* _z;
+    /// Forma sem acento -> palavra acentuada mais comum com essa forma.
+    NSDictionary<NSString*, NSString*>* _folded;
+    NSSet<NSString*>* _slang;
+    volatile BOOL _loaded;
+}
+
++ (instancetype)shared {
+    static PadAutocorrectPT* instance;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        instance = [[PadAutocorrectPT alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    self = [super init];
+    NSArray* saved = [[NSUserDefaults standardUserDefaults] arrayForKey:LEARNED_KEY_PT];
+    _learned = [NSMutableSet setWithArray:saved ?: @[]];
+    _slang = [NSSet setWithArray:@[
+        @"vc", @"vcs", @"pq", @"pra", @"pro", @"tb", @"tbm", @"q", @"blz", @"kkk", @"kkkk", @"kkkkk", @"rs", @"rsrs",
+        @"hj", @"amanha", @"msg", @"obg", @"vlw", @"flw", @"td", @"tdo", @"bjs", @"bj", @"cmg", @"ctz", @"mt", @"mto",
+        @"nd", @"ngm", @"qd", @"qdo", @"qnd", @"sla", @"tlg", @"ok", @"pc", @"app", @"apps", @"wifi", @"kde", @"linux",
+        @"git", @"npm", @"sudo", @"ssh", @"url", @"api", @"bd", @"sql", @"ia", @"ux", @"ui", @"tv", @"gpu", @"cpu",
+        @"login", @"logout", @"site", @"sites", @"email", @"emails", @"online", @"offline", @"bug", @"bugs", @"deploy"]];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        [self load];
+    });
+    return self;
+}
+
+- (void)load {
+    NSString* path = [[NSBundle mainBundle] pathForResource:@"words-pt" ofType:@"txt"];
+    NSString* text = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (text == nil) {
+        Log(LOG_W, @"Autocorreção: words-pt.txt não encontrado");
+        return;
+    }
+    NSMutableDictionary<NSString*, NSNumber*>* z = [NSMutableDictionary dictionaryWithCapacity:110000];
+    NSMutableDictionary<NSString*, NSString*>* folded = [NSMutableDictionary dictionaryWithCapacity:110000];
+    [text enumerateLinesUsingBlock:^(NSString* line, BOOL* stop) {
+        if (line.length == 0 || [line hasPrefix:@"#"]) return;
+        NSRange tab = [line rangeOfString:@"\t"];
+        if (tab.location == NSNotFound) return;
+        NSString* w = [line substringToIndex:tab.location];
+        int v = [line substringFromIndex:tab.location + 1].intValue;
+        if (z[w] != nil) return;
+        z[w] = @(v);
+        NSString* f = foldPT(w);
+        NSString* old = folded[f];
+        if (old == nil || v > z[old].intValue) folded[f] = w;
+    }];
+    _z = z;
+    _folded = folded;
+    _loaded = YES;
+}
+
+- (void)learn:(NSString*)word {
+    NSString* w = word.lowercaseString;
+    if (w.length == 0 || [_learned containsObject:w]) return;
+    @synchronized (self) {
+        [_learned addObject:w];
+        [[NSUserDefaults standardUserDefaults] setObject:_learned.allObjects forKey:LEARNED_KEY_PT];
+    }
+}
+
+- (int)z:(NSString*)w {
+    NSNumber* n = _z[w];
+    return n != nil ? n.intValue : -1;
+}
+
+/// Todas as variantes sem acento a um deslize de distância, com o custo do deslize.
+- (void)edits:(NSString*)w into:(NSMutableDictionary<NSString*, NSNumber*>*)out {
+    NSUInteger n = w.length;
+    unichar src[n + 1], buf[n + 2];
+    [w getCharacters:src range:NSMakeRange(0, n)];
+    #define PUT(LEN, COST) do { NSString* s_ = [NSString stringWithCharacters:buf length:(LEN)]; \
+        if (self->_folded[s_] != nil) { NSNumber* o_ = out[s_]; if (o_ == nil || (COST) < o_.floatValue) out[s_] = @(COST); } } while (0)
+    for (NSUInteger i = 0; i <= n; i++) {
+        memcpy(buf, src, i * sizeof(unichar));
+        BOOL more = i < n;
+        unichar b0 = more ? src[i] : 0;
+        if (more) {
+            BOOL doubled = i > 0 && src[i - 1] == b0;
+            memcpy(buf + i, src + i + 1, (n - i - 1) * sizeof(unichar));
+            PUT(n - 1, doubled ? 0.5f : 0.8f);
+        }
+        if (n - i > 1) {
+            buf[i] = src[i + 1];
+            buf[i + 1] = b0;
+            memcpy(buf + i + 2, src + i + 2, (n - i - 2) * sizeof(unichar));
+            PUT(n, 0.45f);
+        }
+        for (unichar c = 'a'; c <= 'z'; c++) {
+            if (more && c != b0) {
+                buf[i] = c;
+                memcpy(buf + i + 1, src + i + 1, (n - i - 1) * sizeof(unichar));
+                PUT(n, adjacent(b0, c) ? 0.5f : 1.0f);
+            }
+            BOOL doubling = (more && b0 == c) || (i > 0 && src[i - 1] == c);
+            buf[i] = c;
+            memcpy(buf + i + 1, src + i, (n - i) * sizeof(unichar));
+            PUT(n + 1, doubling ? 0.5f : 0.9f);
+        }
+    }
+    #undef PUT
+}
+
+- (nullable NSString*)correct:(NSString*)word previous:(nullable NSString*)previous {
+    if (word.length == 0 || !_loaded) return nil;
+    NSString* lw = word.lowercaseString;
+    if ([_learned containsObject:lw] || [_slang containsObject:lw]) return nil;
+    // Siglas e nomes em maiúsculas ficam como estão.
+    if (word.length > 1 && [word isEqualToString:word.uppercaseString]) return nil;
+    for (NSUInteger i = 0; i < lw.length; i++) {
+        if (![[NSCharacterSet letterCharacterSet] characterIsMember:[lw characterAtIndex:i]]) return nil;
+    }
+    int zt = [self z:lw];
+    NSString* f = foldPT(lw);
+
+    // 1. Acento esquecido: a forma acentuada é bem mais comum que a digitada.
+    NSString* accented = _folded[f];
+    if (accented != nil && ![accented isEqualToString:lw]) {
+        int za = [self z:accented];
+        if (zt < 0 || za - zt >= 12) return matchCase(word, accented);
+    }
+    if (zt >= 30 || (zt >= 0 && lw.length < 3)) return nil; // palavra conhecida
+    if (lw.length < 2) return nil;
+
+    // 2. Um deslize de digitação: a palavra provável mais comum.
+    NSMutableDictionary<NSString*, NSNumber*>* cands = [NSMutableDictionary dictionary];
+    [self edits:f into:cands];
+    __block NSString* best = nil;
+    __block float bestScore = -1e9f;
+    [cands enumerateKeysAndObjectsUsingBlock:^(NSString* k, NSNumber* cost, BOOL* stop) {
+        NSString* real = self->_folded[k];
+        int zc = [self z:real];
+        if (zc < 25) return;
+        float score = 0.6f * (zc / 10.0f) - 3.0f * cost.floatValue;
+        if (score > bestScore) {
+            bestScore = score;
+            best = real;
+        }
+    }];
+    if (best == nil) return nil;
+    // Uma palavra rara mas existente só troca se a outra for muito mais comum.
+    if (zt >= 0 && [self z:best] - zt < 25) return nil;
+    return matchCase(word, best);
+}
+
+@end

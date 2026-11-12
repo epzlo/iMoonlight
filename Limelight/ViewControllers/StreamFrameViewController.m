@@ -37,7 +37,7 @@
 @end
 
 #if !TARGET_OS_TV
-@interface StreamFrameViewController () <UIGestureRecognizerDelegate, PadPanelViewDelegate>
+@interface StreamFrameViewController () <UIGestureRecognizerDelegate, PadPanelViewDelegate, PadLandscapeViewDelegate>
 @end
 #endif
 
@@ -68,6 +68,19 @@
     // Video off: still connected, with the trackpad and keyboard in charge of the screen.
     BOOL _videoOff;
     BOOL _padShown;
+    // Celular deitado: faixa de funções à esquerda da imagem.
+    PadLandscapeView *_landscape;
+    // A imagem fica dentro desta moldura, que recorta o zoom local.
+    UIView *_videoHost;
+    CGFloat _zoom;
+    CGPoint _zoomOffset;
+    CGFloat _pinchStartZoom;
+    CGPoint _pinchLastCenter;
+    UIButton *_zoomBadge;
+    // Retrato: divisor arrastável entre a imagem e o touchpad.
+    UIView *_divider;
+    CGFloat _videoShare;
+    CGFloat _dividerStartShare;
 #endif
 }
 
@@ -223,12 +236,45 @@
         
         // Add StreamView inside a UIScrollView for absolute mode
         [_scrollView addSubview:_streamView];
-        [self.view addSubview:_scrollView];
     }
-    else {
-        // Add StreamView directly in relative mode
-        [self.view addSubview:_streamView];
+#if !TARGET_OS_TV
+    // A imagem mora numa moldura que recorta o zoom local (pinça na imagem).
+    _zoom = 1;
+    _videoHost = [[UIView alloc] initWithFrame:landscapeFrame];
+    _videoHost.clipsToBounds = YES;
+    _videoHost.backgroundColor = [UIColor blackColor];
+    [_videoHost addSubview:_scrollView != nil ? _scrollView : _streamView];
+    [self.view addSubview:_videoHost];
+    if (_scrollView == nil) {
+        UIPinchGestureRecognizer *pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(videoPinched:)];
+        pinch.delegate = self;
+        [_videoHost addGestureRecognizer:pinch];
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(videoPanned:)];
+        pan.minimumNumberOfTouches = 2;
+        pan.maximumNumberOfTouches = 2;
+        pan.delegate = self;
+        pan.name = @"zoomPan";
+        [_videoHost addGestureRecognizer:pan];
+        UITapGestureRecognizer *reset = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(resetZoomTapped)];
+        reset.numberOfTouchesRequired = 2;
+        reset.numberOfTapsRequired = 2;
+        reset.cancelsTouchesInView = NO;
+        [_videoHost addGestureRecognizer:reset];
     }
+    _zoomBadge = [UIButton buttonWithType:UIButtonTypeCustom];
+    _zoomBadge.backgroundColor = [UIColor colorWithRed:0x16 / 255.0 green:0x11 / 255.0 blue:0x0f / 255.0 alpha:0.85];
+    _zoomBadge.layer.cornerRadius = 13;
+    _zoomBadge.layer.borderWidth = 1;
+    _zoomBadge.layer.borderColor = [UIColor colorWithRed:0xc8 / 255.0 green:0xa1 / 255.0 blue:0x5a / 255.0 alpha:0.5].CGColor;
+    _zoomBadge.titleLabel.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightSemibold];
+    [_zoomBadge setTitleColor:[UIColor colorWithRed:0xc8 / 255.0 green:0xa1 / 255.0 blue:0x5a / 255.0 alpha:1] forState:UIControlStateNormal];
+    _zoomBadge.accessibilityLabel = @"Voltar a imagem inteira";
+    _zoomBadge.hidden = YES;
+    [_zoomBadge addTarget:self action:@selector(resetZoomTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:_zoomBadge];
+#else
+    [self.view addSubview:_scrollView != nil ? _scrollView : _streamView];
+#endif
     
     [self.view addSubview:_stageLabel];
     [self.view addSubview:_spinner];
@@ -239,6 +285,28 @@
     _padPanel.delegate = self;
     _padPanel.hidden = YES;
     [self.view addSubview:_padPanel];
+
+    _landscape = [[PadLandscapeView alloc] initWithFrame:CGRectZero];
+    _landscape.delegate = self;
+    _landscape.hidden = YES;
+    [self.view addSubview:_landscape];
+
+    _videoShare = [PadSettings videoShare];
+    _divider = [[UIView alloc] init];
+    _divider.backgroundColor = [UIColor blackColor];
+    _divider.hidden = YES;
+    _divider.accessibilityLabel = @"Arraste para mudar o tamanho da imagem";
+    UIView *grip = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 44, 5)];
+    grip.backgroundColor = [UIColor colorWithRed:0xc8 / 255.0 green:0xa1 / 255.0 blue:0x5a / 255.0 alpha:0.75];
+    grip.layer.cornerRadius = 2.5;
+    grip.tag = 1;
+    grip.userInteractionEnabled = NO;
+    [_divider addSubview:grip];
+    [_divider addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dividerPanned:)]];
+    UITapGestureRecognizer *autoSize = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dividerDoubleTapped)];
+    autoSize.numberOfTapsRequired = 2;
+    [_divider addGestureRecognizer:autoSize];
+    [self.view addSubview:_divider];
     
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(padSettingsChanged:)
@@ -257,32 +325,37 @@
     [self.view setNeedsLayout];
 }
 
-// Landscape: the stream fills the screen, as in Moonlight.
-// Portrait (iPhone): the stream fills the width at the top, and the trackpad with its
-// keyboard fills the rest, like ThorPad.
-// Video off: the trackpad panel takes the whole screen; sideways, the keyboard fills the left
-// side and the trackpad the right.
+static const CGFloat DIVIDER_H = 22;
+
+// Deitado: a imagem ocupa a tela, com a faixa de funções à esquerda (no espaço que sobra ao
+// lado de uma imagem 16:9).
+// Em pé (iPhone): a imagem em cima e o touchpad com teclado embaixo, com um divisor arrastável
+// entre os dois; mais espaço que a proporção pede vira zoom que preenche a altura.
+// Vídeo desligado: o painel do touchpad ocupa a tela; deitado, teclado à esquerda e touchpad à direita.
 - (void)layoutForCurrentOrientation {
     CGRect bounds = self.view.bounds;
-    UIView *streamContainer = _scrollView != nil ? _scrollView : _streamView;
     BOOL phone = [UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPhone;
     BOOL portrait = bounds.size.height > bounds.size.width && phone;
     BOOL padShown = portrait || (_videoOff && phone);
+    BOOL stripShown = phone && !portrait && !_videoOff;
     
     if (portrait != _portraitLayout || padShown != _padShown) {
         if (!padShown) {
             [_padPanel resetInput];
         }
+        [_landscape resetInput];
         _portraitLayout = portrait;
         _padShown = padShown;
-        [_streamView setOnScreenControlsSuppressed:padShown];
+        [_streamView setOnScreenControlsSuppressed:padShown || stripShown];
         _padPanel.hidden = !padShown;
         if (_scrollView != nil) {
             [_scrollView setZoomScale:1.0f animated:NO];
         }
     }
+    _landscape.hidden = !stripShown;
+    _divider.hidden = !(portrait && !_videoOff);
     _padPanel.sideBySide = !portrait;
-    streamContainer.hidden = _videoOff;
+    _videoHost.hidden = _videoOff;
     
     CGRect streamFrame;
     if (_videoOff && padShown) {
@@ -302,54 +375,211 @@
     else if (portrait) {
         UIEdgeInsets safe = self.view.safeAreaInsets;
         float aspect = (float)self.streamConfig.width / (float)self.streamConfig.height;
-        CGFloat usableHeight = bounds.size.height - safe.top - safe.bottom;
-        // Keep at least a usable trackpad below a very tall stream.
-        CGFloat videoHeight = MIN(round(bounds.size.width / aspect), usableHeight * 0.6);
+        CGFloat usableHeight = bounds.size.height - safe.top - safe.bottom - DIVIDER_H;
+        CGFloat fitHeight = MIN(round(bounds.size.width / aspect), usableHeight * 0.6);
+        // O divisor guarda a fração escolhida; 0 = a altura da imagem na proporção do PC.
+        CGFloat videoHeight = _videoShare > 0 ? round(usableHeight * _videoShare) : fitHeight;
+        videoHeight = MAX(usableHeight * 0.18, MIN(videoHeight, usableHeight - 150));
         CGFloat panelHeight = usableHeight - videoHeight;
         if ([PadSettings swapScreens]) {
             _padPanel.frame = CGRectMake(0, safe.top, bounds.size.width, panelHeight);
-            streamFrame = CGRectMake(0, safe.top + panelHeight, bounds.size.width, videoHeight);
+            _divider.frame = CGRectMake(0, safe.top + panelHeight, bounds.size.width, DIVIDER_H);
+            streamFrame = CGRectMake(0, CGRectGetMaxY(_divider.frame), bounds.size.width, videoHeight);
         }
         else {
             streamFrame = CGRectMake(0, safe.top, bounds.size.width, videoHeight);
-            _padPanel.frame = CGRectMake(0, safe.top + videoHeight, bounds.size.width, panelHeight);
+            _divider.frame = CGRectMake(0, CGRectGetMaxY(streamFrame), bounds.size.width, DIVIDER_H);
+            _padPanel.frame = CGRectMake(0, CGRectGetMaxY(_divider.frame), bounds.size.width, panelHeight);
         }
+        [_divider viewWithTag:1].center = CGPointMake(bounds.size.width / 2, DIVIDER_H / 2);
+    }
+    else if (stripShown) {
+        _landscape.frame = bounds;
+        [_landscape layoutIfNeeded];
+        CGFloat left = _landscape.stripWidth;
+        streamFrame = CGRectMake(left, 0, bounds.size.width - left, bounds.size.height);
     }
     else {
         streamFrame = bounds;
     }
     
-    if (!CGRectEqualToRect(streamContainer.frame, streamFrame)) {
+    if (!CGRectEqualToRect(_videoHost.frame, streamFrame)) {
+        _videoHost.frame = streamFrame;
+        CGRect inner = _videoHost.bounds;
         if (_scrollView != nil) {
             [_scrollView setZoomScale:1.0f animated:NO];
-            _scrollView.frame = streamFrame;
+            _scrollView.transform = CGAffineTransformIdentity;
+            _scrollView.frame = inner;
             _streamView.frame = _scrollView.bounds;
             _scrollView.contentSize = _streamView.frame.size;
         }
         else {
-            _streamView.frame = streamFrame;
+            _streamView.transform = CGAffineTransformIdentity;
+            _streamView.frame = inner;
         }
+        // Em pé com mais altura que a proporção pede: o zoom preenche a altura.
+        [self setZoom:[self fillZoom] offset:_zoomOffset];
     }
     
     // Keep the connection progress centered on the stream.
     CGPoint center = CGPointMake(CGRectGetMidX(streamFrame), CGRectGetMidY(streamFrame));
     _stageLabel.center = center;
     _spinner.center = CGPointMake(center.x, center.y - _stageLabel.frame.size.height - _spinner.frame.size.height);
-    _tipLabel.center = CGPointMake(center.x, CGRectGetMinY(streamFrame) + streamFrame.size.height * 0.9);
     if (portrait) {
-        _tipLabel.text = @"Tip: tap Disconnect below to end the stream";
+        _tipLabel.text = @"Para encerrar, toque em Sair embaixo";
+    }
+    else if (stripShown) {
+        _tipLabel.text = @"Para encerrar, toque em Sair na faixa à esquerda";
     }
     else {
-        _tipLabel.text = @"Tip: Swipe from the left edge to disconnect from your PC";
+        _tipLabel.text = @"Para encerrar, deslize a partir da borda esquerda";
     }
     [_tipLabel sizeToFit];
     _tipLabel.center = CGPointMake(center.x, CGRectGetMinY(streamFrame) + streamFrame.size.height * 0.9);
     
+    [self.view bringSubviewToFront:_divider];
     [self.view bringSubviewToFront:_padPanel];
+    [self.view bringSubviewToFront:_landscape];
+    [self.view bringSubviewToFront:_zoomBadge];
+}
+
+#pragma mark - Zoom local da imagem
+
+/// O zoom que faz a imagem 16:9 preencher a altura da moldura (1 quando já preenche).
+- (CGFloat)fillZoom {
+    CGSize host = _videoHost.bounds.size;
+    if (host.width <= 0 || host.height <= 0 || self.streamConfig.height == 0) return 1;
+    CGFloat aspect = (CGFloat)self.streamConfig.width / (CGFloat)self.streamConfig.height;
+    if (!_portraitLayout) return 1;
+    CGFloat videoH = MIN(host.height, host.width / aspect);
+    return MAX(1, host.height / videoH);
+}
+
+- (void)setZoom:(CGFloat)zoom offset:(CGPoint)offset {
+    if (_scrollView != nil) return; // o modo de toque absoluto tem o próprio zoom
+    CGSize size = _videoHost.bounds.size;
+    zoom = MAX(1, MIN(zoom, 5));
+    // Não deixa a imagem sair da moldura.
+    CGFloat maxX = (zoom - 1) * size.width / 2, maxY = (zoom - 1) * size.height / 2;
+    offset.x = MAX(-maxX, MIN(offset.x, maxX));
+    offset.y = MAX(-maxY, MIN(offset.y, maxY));
+    _zoom = zoom;
+    _zoomOffset = offset;
+    _streamView.transform = CGAffineTransformScale(CGAffineTransformMakeTranslation(offset.x, offset.y), zoom, zoom);
+    _landscape.zoom = zoom;
+    BOOL zoomed = zoom > [self fillZoom] + 0.01 || (zoom > 1.01 && !_portraitLayout);
+    _zoomBadge.hidden = !zoomed || _videoOff;
+    if (zoomed) {
+        NSString *z = [[NSString stringWithFormat:@"%.1f×", zoom] stringByReplacingOccurrencesOfString:@"." withString:@","];
+        [_zoomBadge setTitle:[z stringByAppendingString:@"  ✕"] forState:UIControlStateNormal];
+        [_zoomBadge sizeToFit];
+        CGRect f = _zoomBadge.frame;
+        f.size.width += 20;
+        f.size.height = 26;
+        f.origin.x = CGRectGetMaxX(_videoHost.frame) - f.size.width - 10 - (_portraitLayout ? 0 : self.view.safeAreaInsets.right);
+        f.origin.y = CGRectGetMinY(_videoHost.frame) + 10;
+        _zoomBadge.frame = f;
+    }
+}
+
+- (void)videoPinched:(UIPinchGestureRecognizer *)pinch {
+    CGPoint c = [pinch locationInView:_videoHost];
+    if (pinch.state == UIGestureRecognizerStateBegan) {
+        _pinchStartZoom = _zoom;
+        _pinchLastCenter = c;
+        [_streamView setOnScreenControlsSuppressed:YES];
+        return;
+    }
+    if (pinch.state != UIGestureRecognizerStateChanged) {
+        [_streamView setOnScreenControlsSuppressed:_padShown || !_landscape.hidden];
+        return;
+    }
+    // O ponto da imagem sob os dedos fica sob os dedos enquanto aproxima e acompanha o arraste.
+    CGSize size = _videoHost.bounds.size;
+    CGPoint mid = CGPointMake(size.width / 2, size.height / 2);
+    CGFloat newZoom = MAX(1, MIN(_pinchStartZoom * pinch.scale, 5));
+    CGPoint q = CGPointMake((_pinchLastCenter.x - mid.x - _zoomOffset.x) / _zoom,
+                            (_pinchLastCenter.y - mid.y - _zoomOffset.y) / _zoom);
+    CGPoint offset = CGPointMake(c.x - mid.x - newZoom * q.x, c.y - mid.y - newZoom * q.y);
+    _pinchLastCenter = c;
+    [self setZoom:newZoom offset:offset];
+}
+
+- (void)videoPanned:(UIPanGestureRecognizer *)pan {
+    CGPoint t = [pan translationInView:_videoHost];
+    [pan setTranslation:CGPointZero inView:_videoHost];
+    [self setZoom:_zoom offset:CGPointMake(_zoomOffset.x + t.x, _zoomOffset.y + t.y)];
+}
+
+- (void)resetZoomTapped {
+    [UIView animateWithDuration:0.2 animations:^{
+        [self setZoom:[self fillZoom] offset:CGPointZero];
+    }];
+}
+
+- (void)landscape:(PadLandscapeView *)view wantsZoom:(CGFloat)zoom {
+    [UIView animateWithDuration:0.2 animations:^{
+        [self setZoom:zoom offset:CGPointMake(self->_zoomOffset.x * zoom / MAX(self->_zoom, 1), self->_zoomOffset.y * zoom / MAX(self->_zoom, 1))];
+    }];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    // Pinça e arraste de dois dedos andam juntos, como no app Fotos.
+    return gestureRecognizer.view == _videoHost && other.view == _videoHost;
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    // Sem zoom, dois dedos na imagem continuam rolando o PC.
+    if ([gestureRecognizer.name isEqualToString:@"zoomPan"]) {
+        return _zoom > 1.01;
+    }
+    return YES;
+}
+
+#pragma mark - Divisor (em pé)
+
+- (void)dividerPanned:(UIPanGestureRecognizer *)pan {
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat usable = self.view.bounds.size.height - safe.top - safe.bottom - DIVIDER_H;
+    if (usable <= 0) return;
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        _dividerStartShare = _videoHost.frame.size.height / usable;
+    }
+    CGFloat dy = [pan translationInView:self.view].y * ([PadSettings swapScreens] ? -1 : 1);
+    _videoShare = MAX(0.18, MIN(_dividerStartShare + dy / usable, (usable - 150) / usable));
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
+        [PadSettings setFloat:_videoShare forKey:PadKeyVideoShare];
+    }
+}
+
+- (void)dividerDoubleTapped {
+    // Volta ao tamanho automático (a proporção da tela do PC).
+    _videoShare = 0;
+    [PadSettings setFloat:0 forKey:PadKeyVideoShare];
+    [self.view setNeedsLayout];
+}
+
+#pragma mark - Faixa (deitado)
+
+- (void)landscapeWantsSettings:(PadLandscapeView *)view {
+    [self padPanelWantsSettings:_padPanel];
+}
+
+- (void)landscapeWantsDisconnect:(PadLandscapeView *)view {
+    [self padPanelWantsDisconnect:_padPanel];
+}
+
+- (void)landscapeWantsVideoToggled:(PadLandscapeView *)view {
+    [self padPanelWantsVideoToggled:_padPanel];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
     // The trackpad has its own swipes; only the stream area's left edge ends the stream.
+    if (gestureRecognizer == _exitSwipeRecognizer && !_landscape.hidden) {
+        return NO; // deitado, a faixa tem o botão Sair e fica na borda esquerda
+    }
     if (gestureRecognizer == _exitSwipeRecognizer && !_padPanel.hidden) {
         return !CGRectContainsPoint(_padPanel.frame, [touch locationInView:self.view]);
     }
@@ -359,6 +589,7 @@
 - (void)padPanelWantsSettings:(PadPanelView *)panel {
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:[[PadSettingsViewController alloc] init]];
     nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    nav.view.tintColor = [UIColor colorWithRed:0xd9 / 255.0 green:0x43 / 255.0 blue:0x4a / 255.0 alpha:1];
     [self presentViewController:nav animated:YES completion:nil];
 }
 

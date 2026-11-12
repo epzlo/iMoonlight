@@ -12,7 +12,7 @@
 #import "PadAutocorrect.h"
 
 typedef NS_ENUM(NSInteger, PadKeyType) {
-    PadKeyChar, PadKeyShift, PadKeyBackspace, PadKeyEnter, PadKeySpace, PadKeyPage, PadKeySpecial, PadKeyClose
+    PadKeyChar, PadKeyShift, PadKeyBackspace, PadKeyEnter, PadKeySpace, PadKeyPage, PadKeySpecial, PadKeyClose, PadKeyAccent
 };
 typedef NS_ENUM(NSInteger, PadKeyStyle) { PadKeyStyleKey, PadKeyStyleMod, PadKeyStyleEnter };
 enum { PageLetters = 0, PageSymbols = 1, PageMore = 2 };
@@ -70,6 +70,16 @@ static NSArray<PadKey*>* special(NSString* label, PadSpecialKey key) {
     return @[[PadKey label:label type:PadKeySpecial ch:0 value:key weight:1 style:PadKeyStyleMod]];
 }
 
+/// Acento (tecla morta): fica esperando a próxima letra, como num teclado ABNT2.
+static NSArray<PadKey*>* accents(NSString* s) {
+    NSMutableArray* out = [NSMutableArray array];
+    for (NSUInteger i = 0; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        [out addObject:[PadKey label:[NSString stringWithCharacters:&c length:1] type:PadKeyAccent ch:c value:0 weight:1 style:PadKeyStyleMod]];
+    }
+    return out;
+}
+
 static NSArray<PadKey*>* join(NSArray<NSArray<PadKey*>*>* parts) {
     NSMutableArray* out = [NSMutableArray array];
     for (NSArray* p in parts) [out addObjectsFromArray:p];
@@ -79,9 +89,9 @@ static NSArray<PadKey*>* join(NSArray<NSArray<PadKey*>*>* parts) {
 static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     return join(@[mod(pageLabel, PadKeyPage, target),
                   chars(@","),
-                  @[[PadKey label:@"space" type:PadKeySpace ch:' ' value:0 weight:4 style:PadKeyStyleKey]],
+                  @[[PadKey label:@"espaço" type:PadKeySpace ch:' ' value:0 weight:4 style:PadKeyStyleKey]],
                   chars(@"."),
-                  @[[PadKey label:@"⏎ Enter" type:PadKeyEnter ch:0 value:PadSpecialEnter weight:1.6 style:PadKeyStyleEnter]]]);
+                  @[[PadKey label:@"⏎" type:PadKeyEnter ch:0 value:PadSpecialEnter weight:1.6 style:PadKeyStyleEnter]]]);
 }
 
 @implementation PadKeyboardView {
@@ -97,6 +107,11 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     CGFloat _rowHeight;
     PadKey* _repeating;
     PadKey* _flash;
+    /// Acento esperando a próxima letra (´ ~ ^ `), ou 0.
+    unichar _pendingAccent;
+    /// Páginas com a linha de acentos (português) ou sem (inglês).
+    NSArray<NSArray<NSArray<PadKey*>*>*>* _pagesPT;
+    NSArray<NSArray<NSArray<PadKey*>*>*>* _pagesEN;
     BOOL _typeOnRelease;
     BOOL _autoCapitalize;
     BOOL _doubleSpacePeriod;
@@ -106,7 +121,7 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
 
     // Autocorrect: the suggestion for the word being typed is worked out in the background
     // and shown in the strip; tapping the strip keeps the word as typed.
-    PadAutocorrect* _autocorrect;
+    id<PadCorrector> _autocorrect;
     dispatch_queue_t _acQueue;
     NSUInteger _acGeneration;
     NSString* _suggestion;
@@ -126,8 +141,27 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
         _down = [NSMapTable strongToStrongObjectsMapTable];
         _typed = [NSMutableString string];
         _acQueue = dispatch_queue_create("imoonlight.pad.autocorrect", DISPATCH_QUEUE_SERIAL);
-        _closeKey = [PadKey label:@"✕ Close" type:PadKeyClose ch:0 value:0 weight:0 style:PadKeyStyleKey];
-        _pages = @[
+        _closeKey = [PadKey label:@"✕ Fechar" type:PadKeyClose ch:0 value:0 weight:0 style:PadKeyStyleKey];
+        _pagesPT = @[
+            @[join(@[accents(@"´~^`"), chars(@"-?!")]),
+              chars(@"qwertyuiop"),
+              chars(@"asdfghjklç"),
+              join(@[mod(@"⇧", PadKeyShift, 0), chars(@"zxcvbnm"), mod(@"⌫", PadKeyBackspace, PadSpecialBackspace)]),
+              bottomRow(@"?123", PageSymbols)],
+            @[chars(@"1234567890"),
+              chars(@"@#$%&-+()"),
+              chars(@"€£ºª°§/_="),
+              join(@[mod(@"=\\<", PadKeyPage, PageMore), chars(@"*\"':;!?"), mod(@"⌫", PadKeyBackspace, PadSpecialBackspace)]),
+              bottomRow(@"ABC", PageLetters)],
+            @[chars(@"~`|\\{}[]<>"),
+              chars(@"^´¨«»…•¿¡"),
+              join(@[special(@"Esc", PadSpecialEscape), special(@"Tab", PadSpecialTab), chars(@"=_^/"),
+                     special(@"←", PadSpecialLeft), special(@"↑", PadSpecialUp), special(@"→", PadSpecialRight)]),
+              join(@[mod(@"?123", PadKeyPage, PageSymbols), chars(@"'\":;!?"), special(@"↓", PadSpecialDown),
+                     mod(@"⌫", PadKeyBackspace, PadSpecialBackspace)]),
+              bottomRow(@"ABC", PageLetters)],
+        ];
+        _pagesEN = @[
             @[chars(@"qwertyuiop"),
               chars(@"asdfghjkl"),
               join(@[mod(@"⇧", PadKeyShift, 0), chars(@"zxcvbnm"), mod(@"⌫", PadKeyBackspace, PadSpecialBackspace)]),
@@ -143,6 +177,7 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
                      mod(@"⌫", PadKeyBackspace, PadSpecialBackspace)]),
               bottomRow(@"ABC", PageLetters)],
         ];
+        _pages = _pagesPT;
         [self applySettings];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applySettings)
                                                      name:PadSettingsChangedNotification object:nil];
@@ -159,7 +194,15 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     _typeOnRelease = [PadSettings typeOnRelease];
     _autoCapitalize = [PadSettings autoCapitalize];
     _doubleSpacePeriod = [PadSettings doubleSpacePeriod];
-    PadAutocorrect* ac = [PadSettings autocorrect] ? [PadAutocorrect shared] : nil;
+    BOOL pt = [PadSettings portuguese];
+    if ((_pages == _pagesPT) != pt) {
+        _pages = pt ? _pagesPT : _pagesEN;
+        _pendingAccent = 0;
+        [self cancelTouches];
+        [self setNeedsLayout];
+    }
+    id<PadCorrector> ac = ![PadSettings autocorrect] ? nil
+        : pt ? (id<PadCorrector>)[PadAutocorrectPT shared] : (id<PadCorrector>)[PadAutocorrect shared];
     if (ac != _autocorrect) {
         _autocorrect = ac;
         [self clearSuggestion];
@@ -172,6 +215,7 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     _fixOriginal = nil;
     _page = PageLetters;
     _shift = 0;
+    _pendingAccent = 0;
     _autoShifted = NO;
     [self updateAutoShift];
     [self cancelTouches];
@@ -181,7 +225,8 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
 #pragma mark - Layout
 
 + (CGFloat)preferredHeight {
-    return 260; // the iPhone keyboard's height without its emoji / dictation row
+    // A altura do teclado do iPhone sem a fileira de emoji / ditado, mais a linha de acentos.
+    return [PadSettings portuguese] ? 290 : 260;
 }
 
 - (void)layoutSubviews {
@@ -190,15 +235,18 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     CGFloat closeW = MAX(88, w * 260 / 1240);
     _stripRect = CGRectMake(0, 0, w - closeW, STRIP_HEIGHT);
     _closeKey.rect = CGRectMake(w - closeW, 0, closeW, STRIP_HEIGHT);
-    _rowHeight = (h - STRIP_HEIGHT) / 4;
+    NSUInteger maxRows = 1;
+    for (NSArray* rows in _pages) maxRows = MAX(maxRows, rows.count);
+    _rowHeight = (h - STRIP_HEIGHT) / maxRows;
     for (NSArray<NSArray<PadKey*>*>* rows in _pages) {
         for (NSUInteger r = 0; r < rows.count; r++) {
             CGFloat total = 0;
             for (PadKey* k in rows[r]) total += k.weight;
-            CGFloat x = 0, top = STRIP_HEIGHT + r * _rowHeight;
+            CGFloat rowH = (h - STRIP_HEIGHT) / rows.count;
+            CGFloat x = 0, top = STRIP_HEIGHT + r * rowH;
             for (PadKey* k in rows[r]) {
                 CGFloat kw = w * k.weight / total;
-                k.rect = CGRectMake(x, top, kw, _rowHeight);
+                k.rect = CGRectMake(x, top, kw, rowH);
                 x += kw;
             }
         }
@@ -212,7 +260,7 @@ static NSArray<PadKey*>* bottomRow(NSString* pageLabel, NSInteger target) {
     [[UIColor blackColor] setFill];
     UIRectFill(self.bounds);
     CGFloat hair = 1;
-    [rgb(0x11, 0x13, 0x17) setFill];
+    [rgb(0x16, 0x11, 0x0f) setFill];
     UIRectFill(CGRectMake(_stripRect.origin.x, _stripRect.origin.y, _stripRect.size.width - hair, _stripRect.size.height - hair));
     [self drawPreview];
     [self drawKey:_closeKey hair:hair];
@@ -244,17 +292,17 @@ static void drawCentered(NSString* text, CGRect r, UIFont* font, UIColor* color)
     // Font sizes follow the key height, within limits that read well on a phone.
     CGFloat rh = MIN(_rowHeight, 110);
     if (k.type == PadKeyClose) {
-        bg = rgb(0x4a, 0x22, 0x28);
-        fg = rgb(0xff, 0xb3, 0xba);
+        bg = rgb(0x4a, 0x16, 0x1a);
+        fg = rgb(0xff, 0xb8, 0xb0);
         size = STRIP_HEIGHT * 0.38;
         bold = YES;
     } else if (k.style == PadKeyStyleEnter) {
-        bg = rgb(0x1f, 0x4d, 0x6b);
-        fg = rgb(0xbf, 0xe6, 0xff);
+        bg = rgb(0xa3, 0x24, 0x2a);
+        fg = rgb(0xef, 0xe7, 0xde);
         size = rh * 0.17;
     } else if (k.style == PadKeyStyleMod) {
-        bg = (k.type == PadKeyShift && _shift == 2) ? rgb(0x24, 0x50, 0x6e) : rgb(0x2c, 0x30, 0x39);
-        fg = (k.type == PadKeyShift && _shift > 0) ? [UIColor whiteColor] : rgb(0xcf, 0xd6, 0xe2);
+        bg = (k.type == PadKeyShift && _shift == 2) ? rgb(0x7a, 0x1c, 0x21) : rgb(0x33, 0x29, 0x25);
+        fg = (k.type == PadKeyShift && _shift > 0) ? [UIColor whiteColor] : rgb(0xe0, 0xd5, 0xc8);
         size = k.label.length > 2 ? rh * 0.17 : rh * 0.24;
         bold = k.type == PadKeyShift && _shift > 0;
     } else if (clearAll) {
@@ -264,21 +312,25 @@ static void drawCentered(NSString* text, CGRect r, UIFont* font, UIColor* color)
         size = rh * 0.17;
         bold = YES;
     } else if (k.type == PadKeySpace) {
-        bg = rgb(0x24, 0x26, 0x2d);
-        fg = rgb(0x8a, 0x90, 0x9b);
+        bg = rgb(0x24, 0x1d, 0x1a);
+        fg = rgb(0x9a, 0x8c, 0x82);
         size = rh * 0.14;
     } else {
-        bg = rgb(0x24, 0x26, 0x2d);
+        bg = rgb(0x24, 0x1d, 0x1a);
         fg = [UIColor whiteColor];
         size = rh * 0.29;
     }
     if ([self isDown:k]) {
-        bg = rgb(0x78, 0xc8, 0xff);
+        bg = rgb(0xc8, 0xa1, 0x5a);
         fg = [UIColor blackColor];
     }
     [bg setFill];
     UIRectFill(CGRectMake(k.rect.origin.x, k.rect.origin.y, k.rect.size.width - hair, k.rect.size.height - hair));
-    NSString* label = clearAll ? @"Clear all" : k.label;
+    if (k.type == PadKeyAccent && k.ch == _pendingAccent) {
+        bg = rgb(0xa3, 0x24, 0x2a);
+        fg = rgb(0xef, 0xe7, 0xde);
+    }
+    NSString* label = clearAll ? @"Apagar tudo" : k.label;
     if (k.type == PadKeyChar && _shift > 0 && _page == PageLetters) label = label.uppercaseString;
     UIFont* font = bold ? [UIFont boldSystemFontOfSize:size] : [UIFont systemFontOfSize:size];
     drawCentered(label, k.rect, font, fg);
@@ -294,7 +346,7 @@ static void drawCentered(NSString* text, CGRect r, UIFont* font, UIColor* color)
         // Hold to put a second finger on the trackpad, so one finger scrolls and swipes.
         CGFloat bw = h * 1.5;
         _handRect = CGRectMake(h * 0.12, h * 0.14, bw, h * 0.72);
-        [(_handTouch != nil ? rgb(0x78, 0xc8, 0xff) : rgb(0x2c, 0x30, 0x39)) setFill];
+        [(_handTouch != nil ? rgb(0xc8, 0xa1, 0x5a) : rgb(0x33, 0x29, 0x25)) setFill];
         [[UIBezierPath bezierPathWithRoundedRect:_handRect cornerRadius:h * 0.2] fill];
         NSDictionary* handAttrs = @{NSFontAttributeName: [UIFont systemFontOfSize:h * 0.46]};
         CGSize hs = [@"✋" sizeWithAttributes:handAttrs];
@@ -307,19 +359,19 @@ static void drawCentered(NSString* text, CGRect r, UIFont* font, UIColor* color)
     if (_suggestion != nil) {
         // "→ fix ✕" pill: autocorrect will use this at the next space; tap to keep yours.
         NSDictionary* pillAttrs = @{NSFontAttributeName: [UIFont boldSystemFontOfSize:h * 0.36],
-                                    NSForegroundColorAttributeName: rgb(0x78, 0xc8, 0xff)};
+                                    NSForegroundColorAttributeName: rgb(0xc8, 0xa1, 0x5a)};
         NSString* pill = [NSString stringWithFormat:@"→ %@  ✕", _suggestion];
         CGSize ps = [pill sizeWithAttributes:pillAttrs];
         CGFloat pw = ps.width + h * 0.5;
         _pillRect = CGRectMake(CGRectGetMaxX(_stripRect) - h * 0.12 - pw, h * 0.14, pw, h * 0.72);
-        [rgb(0x2c, 0x30, 0x39) setFill];
+        [rgb(0x33, 0x29, 0x25) setFill];
         [[UIBezierPath bezierPathWithRoundedRect:_pillRect cornerRadius:h * 0.2] fill];
         [pill drawAtPoint:CGPointMake(_pillRect.origin.x + h * 0.25, cy - ps.height / 2) withAttributes:pillAttrs];
         right = _pillRect.origin.x - h * 0.2;
     }
 
     NSDictionary* textAttrs = @{NSFontAttributeName: [UIFont systemFontOfSize:h * 0.46],
-                                NSForegroundColorAttributeName: rgb(0xe8, 0xe8, 0xe8)};
+                                NSForegroundColorAttributeName: rgb(0xef, 0xe7, 0xde)};
     CGFloat room = MAX(0, right - x);
     NSString* shown = [[_typed stringByReplacingOccurrencesOfString:@"\n" withString:@"↵"]
                        stringByReplacingOccurrencesOfString:@"\t" withString:@"⇥"];
@@ -331,7 +383,7 @@ static void drawCentered(NSString* text, CGRect r, UIFont* font, UIColor* color)
     CGFloat lineH = [textAttrs[NSFontAttributeName] lineHeight];
     [shown drawAtPoint:CGPointMake(x, cy - lineH / 2) withAttributes:textAttrs];
     CGFloat caretX = x + ts.width + 2;
-    [rgb(0x78, 0xc8, 0xff) setFill];
+    [rgb(0xc8, 0xa1, 0x5a) setFill];
     UIRectFill(CGRectMake(caretX, cy - h * 0.26, 2, h * 0.52));
 }
 
@@ -574,7 +626,7 @@ static BOOL isWordChar(unichar c) {
         _suggestionFor = nil;
         [self setNeedsDisplay];
     }
-    PadAutocorrect* ac = _autocorrect;
+    id<PadCorrector> ac = _autocorrect;
     NSString* previous = [self previousWord];
     NSUInteger generation = ++_acGeneration;
     __weak PadKeyboardView* weakSelf = self;
@@ -687,12 +739,42 @@ static BOOL isWordChar(unichar c) {
             if (k.value == PadSpecialTab) [_typed appendString:@"\t"];
             [[PadOutput shared] special:(PadSpecialKey)k.value];
             break;
+        case PadKeyAccent:
+            if (_pendingAccent == k.ch) {
+                // Duas vezes o mesmo acento: digita o próprio acento.
+                _pendingAccent = 0;
+                [self typeText:[self spacingAccent:k.ch]];
+            } else {
+                if (_pendingAccent != 0) [self typeText:[self spacingAccent:_pendingAccent]];
+                _pendingAccent = k.ch;
+            }
+            [self setNeedsDisplay];
+            return;
         case PadKeySpace:
         case PadKeyChar: {
-            if (k.type == PadKeySpace && [self doubleSpaceToPeriod]) break;
+            if (k.type == PadKeySpace && _pendingAccent == 0 && [self doubleSpaceToPeriod]) break;
             unichar c = k.ch;
-            if (_page == PageLetters && _shift > 0 && c >= 'a' && c <= 'z') c -= 'a' - 'A';
+            if (_shift > 0 && [[NSCharacterSet lowercaseLetterCharacterSet] characterIsMember:c]
+                && (_page == PageLetters || c > 0x7F)) {
+                c = [[NSString stringWithCharacters:&c length:1].uppercaseString characterAtIndex:0];
+            }
             NSString* s = [NSString stringWithCharacters:&c length:1];
+            if (_pendingAccent != 0) {
+                unichar accent = _pendingAccent;
+                _pendingAccent = 0;
+                NSString* composed = [self compose:c accent:accent];
+                if (composed != nil) {
+                    s = composed;
+                } else if (k.type == PadKeySpace) {
+                    // Acento + espaço: só o acento.
+                    [self typeText:[self spacingAccent:accent]];
+                    _lastSpaceAt = 0;
+                    [self updateSuggestion];
+                    break;
+                } else {
+                    [self typeText:[self spacingAccent:accent]];
+                }
+            }
             if (isBoundary(c)) [self autocorrectWord:s];
             [self typeText:s];
             if (_shift == 1 && k.type == PadKeyChar) _shift = 0;
@@ -703,6 +785,33 @@ static BOOL isWordChar(unichar c) {
     }
     [self updateAutoShift];
     [self setNeedsDisplay];
+}
+
+/// O caractere que um acento sozinho digita.
+- (NSString*)spacingAccent:(unichar)accent {
+    switch (accent) {
+        case 0x00B4: return @"'";
+        case '~': return @"~";
+        case '^': return @"^";
+        case '`': return @"`";
+        default: return [NSString stringWithCharacters:&accent length:1];
+    }
+}
+
+/// Letra + acento num caractere só (a + ´ = á, c + ´ = ç), ou nil se não combinam.
+- (nullable NSString*)compose:(unichar)c accent:(unichar)accent {
+    unichar mark;
+    switch (accent) {
+        case 0x00B4: mark = (c == 'c' || c == 'C') ? 0x0327 : 0x0301; break;
+        case '~': mark = 0x0303; break;
+        case '^': mark = 0x0302; break;
+        case '`': mark = 0x0300; break;
+        default: return nil;
+    }
+    if (![@"aeiouAEIOUcCnN" containsString:[NSString stringWithCharacters:&c length:1]]) return nil;
+    unichar pair[2] = {c, mark};
+    NSString* s = [NSString stringWithCharacters:pair length:2].precomposedStringWithCanonicalMapping;
+    return s.length == 1 ? s : nil;
 }
 
 /// A second quick space after a word (or a closing bracket or quote) turns the first into

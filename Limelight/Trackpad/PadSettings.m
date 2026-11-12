@@ -18,6 +18,9 @@ NSString* const PadKeyAutoCapitalize = @"pad.autoCapitalize";
 NSString* const PadKeyDoubleSpacePeriod = @"pad.doubleSpacePeriod";
 
 NSString* const PadKeyShowHints = @"pad.showHints";
+NSString* const PadKeyPortuguese = @"pad.portuguese";
+NSString* const PadKeyDeadKeys = @"pad.deadKeys";
+NSString* const PadKeyVideoShare = @"pad.videoShare";
 
 NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotification";
 
@@ -38,6 +41,9 @@ NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotificatio
             PadKeyAutoCapitalize: @YES,
             PadKeyDoubleSpacePeriod: @YES,
             PadKeyShowHints: @NO,
+            PadKeyPortuguese: @YES,
+            PadKeyDeadKeys: @YES,
+            PadKeyVideoShare: @0.0f,
         }];
     }
 }
@@ -55,6 +61,9 @@ NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotificatio
 + (BOOL)doubleSpacePeriod { return [self boolForKey:PadKeyDoubleSpacePeriod]; }
 
 + (BOOL)showHints { return [self boolForKey:PadKeyShowHints]; }
++ (BOOL)portuguese { return [self boolForKey:PadKeyPortuguese]; }
++ (BOOL)deadKeys { return [self boolForKey:PadKeyDeadKeys]; }
++ (float)videoShare { return [self floatForKey:PadKeyVideoShare]; }
 
 + (float)floatForKey:(NSString*)key {
     return [[NSUserDefaults standardUserDefaults] floatForKey:key];

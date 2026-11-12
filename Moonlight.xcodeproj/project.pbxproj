@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D4E5F60718293A4B5C /* words-pt.txt in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* words-pt.txt */; };
 		0641C52FE15815809ABBFE1E /* PadHaptics.m in Sources */ = {isa = PBXBuildFile; fileRef = F325347BEBA6E540DA2DB503 /* PadHaptics.m */; };
 		142723E08D87BB5F0D3B4169 /* words.txt in Resources */ = {isa = PBXBuildFile; fileRef = 04077268152A314C06173A67 /* words.txt */; };
 		474769DFB2F630E8C1AA3663 /* PadKeyboardView.m in Sources */ = {isa = PBXBuildFile; fileRef = 248C55F1E2DC05D3D4D820F9 /* PadKeyboardView.m */; };
@@ -181,6 +182,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D4E5F60718293A4B5D /* words-pt.txt */ = {isa = PBXFileReference; includeInIndex = 1; path = "words-pt.txt"; sourceTree = "<group>"; };
 		04077268152A314C06173A67 /* words.txt */ = {isa = PBXFileReference; includeInIndex = 1; path = words.txt; sourceTree = "<group>"; };
 		0ED7029921C87D41423EE939 /* PadAutocorrect.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = PadAutocorrect.h; sourceTree = "<group>"; };
 		0FA06D982C09EA792F4937C5 /* PadTrackpadView.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = PadTrackpadView.h; sourceTree = "<group>"; };
@@ -419,6 +421,7 @@
 				9249A7F67F62EE335F053EA8 /* PadTrackpadView.m */,
 				04077268152A314C06173A67 /* words.txt */,
 				7D28FEE0F9252A8150C8B016 /* pairs.txt */,
+				A1B2C3D4E5F60718293A4B5D /* words-pt.txt */,
 			);
 			name = Trackpad;
 			path = Trackpad;
@@ -884,6 +887,7 @@
 				FB89463819F6473800339C8A /* Launch Screen.xib in Resources */,
 				142723E08D87BB5F0D3B4169 /* words.txt in Resources */,
 				C154DF1BE1A7FCBE13284AB7 /* pairs.txt in Resources */,
+				A1B2C3D4E5F60718293A4B5C /* words-pt.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

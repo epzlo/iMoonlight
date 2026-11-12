@@ -21,6 +21,9 @@ extern NSString* const PadKeyTypeOnRelease;
 extern NSString* const PadKeyAutoCapitalize;
 extern NSString* const PadKeyDoubleSpacePeriod;
 extern NSString* const PadKeyShowHints;
+extern NSString* const PadKeyPortuguese;
+extern NSString* const PadKeyDeadKeys;
+extern NSString* const PadKeyVideoShare;
 
 /// Posted when any trackpad setting changes.
 extern NSString* const PadSettingsChangedNotification;
@@ -51,6 +54,12 @@ extern NSString* const PadSettingsChangedNotification;
 + (BOOL)doubleSpacePeriod;
 /// Trackpad: the gesture cheat sheet along the bottom. Off by default.
 + (BOOL)showHints;
+/// Teclado: autocorreção em português (YES) ou inglês (NO).
++ (BOOL)portuguese;
+/// O PC usa o layout "EUA internacional com teclas mortas": acentos saem como ' + a.
++ (BOOL)deadKeys;
+/// Retrato: fração da altura útil que o vídeo ocupa (0 = automático, pela proporção da tela do PC).
++ (float)videoShare;
 
 + (float)floatForKey:(NSString*)key;
 + (void)setFloat:(float)value forKey:(NSString*)key;

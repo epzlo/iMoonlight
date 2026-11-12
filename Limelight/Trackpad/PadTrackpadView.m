@@ -86,9 +86,9 @@ static const CGFloat ZOOM_STEP_PT = 60;
 
 static NSArray<NSArray<NSString*>*>* hintColumns(void) {
     return @[
-        @[@"Slide", @"move", @"Tap", @"click", @"Hold", @"right click", @"Tap, hold, slide", @"drag"],
-        @[@"Up / down", @"scroll", @"Spread / pinch", @"zoom", @"Tap", @"right click", @"Swipe right", @"back (Alt+←)", @"Swipe left", @"forward (Alt+→)"],
-        @[@"Swipe up", @"task view", @"Swipe down", @"show desktop", @"Swipe left / right", @"switch app"],
+        @[@"Deslizar", @"mover", @"Tocar", @"clique", @"Segurar", @"clique direito", @"Tocar, segurar, deslizar", @"arrastar"],
+        @[@"Cima / baixo", @"rolar", @"Abrir / pinçar", @"zoom no PC (Ctrl+roda)", @"Tocar", @"clique direito", @"Para a direita", @"voltar (Alt+←)", @"Para a esquerda", @"avançar (Alt+→)"],
+        @[@"Para cima", @"visão geral (Super+W)", @"Para baixo", @"área de trabalho (Super+D)", @"Esquerda / direita", @"trocar janela (Alt+Tab)"],
     ];
 }
 
@@ -101,7 +101,7 @@ static NSArray<NSArray<NSString*>*>* hintColumns(void) {
     CGRect outline = CGRectInset(self.bounds, 6, 6);
     UIBezierPath* path = [UIBezierPath bezierPathWithRoundedRect:outline cornerRadius:18];
     path.lineWidth = 1.5;
-    [(_touching ? [UIColor colorWithRed:120/255.0 green:200/255.0 blue:1 alpha:90/255.0]
+    [(_touching ? [UIColor colorWithRed:0xc8/255.0 green:0xa1/255.0 blue:0x5a/255.0 alpha:110/255.0]
                 : [UIColor colorWithWhite:1 alpha:40/255.0]) setStroke];
     [path stroke];
 
@@ -131,14 +131,14 @@ static NSArray<NSArray<NSString*>*>* hintColumns(void) {
 
 /// The gesture cheat sheet along the bottom: one column per number of fingers.
 - (void)drawHints {
-    NSArray<NSString*>* titles = @[@"☝️ One finger", @"✌️ Two fingers", @"🤟 Three fingers"];
+    NSArray<NSString*>* titles = @[@"☝️ Um dedo", @"✌️ Dois dedos", @"🤟 Três dedos"];
     NSArray<NSArray<NSString*>*>* columns = hintColumns();
     CGFloat side = 16, bottomPad = 18;
     CGFloat colW = (self.bounds.size.width - 2 * side) / 3;
     CGFloat textW = colW - 14;
     UIFont* titleFont = [UIFont boldSystemFontOfSize:11];
     UIFont* font = [UIFont systemFontOfSize:10];
-    UIColor* titleColor = [UIColor colorWithRed:120/255.0 green:200/255.0 blue:1 alpha:140/255.0];
+    UIColor* titleColor = [UIColor colorWithRed:0xc8/255.0 green:0xa1/255.0 blue:0x5a/255.0 alpha:170/255.0];
     UIColor* keyColor = [UIColor colorWithWhite:1 alpha:140/255.0];
     UIColor* valueColor = [UIColor colorWithWhite:1 alpha:97/255.0];
     NSStringDrawingOptions opts = NSStringDrawingUsesLineFragmentOrigin;
@@ -350,8 +350,8 @@ static NSArray<NSArray<NSString*>*>* hintColumns(void) {
             [self buzz:PadHapticThreeFinger];
             _state = PadStateDone;
         } else if (fabs(dy) > SWIPE_PT && fabs(dy) > 1.5 * fabs(dx)) {
-            // Task view, or show the desktop.
-            [out pressKeys:@[@(PadVkWin), @(dy < 0 ? PadVkTab : PadVkD)]];
+            // KDE: visão geral (Super+W) ou espiar a área de trabalho (Super+D).
+            [out pressKeys:@[@(PadVkWin), @(dy < 0 ? PadVkW : PadVkD)]];
             [self buzz:PadHapticThreeFinger];
             _state = PadStateDone;
         }
