@@ -118,7 +118,7 @@
     
     _stageLabel = [[UILabel alloc] init];
     [_stageLabel setUserInteractionEnabled:NO];
-    [_stageLabel setText:[NSString stringWithFormat:@"Starting %@...", self.streamConfig.appName]];
+    [_stageLabel setText:[NSString stringWithFormat:@"Abrindo %@...", self.streamConfig.appName]];
     [_stageLabel sizeToFit];
     _stageLabel.textAlignment = NSTextAlignmentCenter;
     _stageLabel.textColor = [UIColor whiteColor];
@@ -180,7 +180,7 @@
 #if TARGET_OS_TV
     [_tipLabel setText:@"Tip: Tap the Play/Pause button on the Apple TV Remote to disconnect from your PC"];
 #else
-    [_tipLabel setText:@"Tip: Swipe from the left edge to disconnect from your PC"];
+    [_tipLabel setText:@"Para encerrar, deslize a partir da borda esquerda"];
 #endif
     
     [_tipLabel sizeToFit];
@@ -809,8 +809,8 @@ static const CGFloat DIVIDER_H = 22;
         NSString* message;
         
         if (portTestResults != ML_TEST_RESULT_INCONCLUSIVE && portTestResults != 0) {
-            title = @"Connection Error";
-            message = @"Your device's network connection is blocking Moonlight. Streaming may not work while connected to this network.";
+            title = @"Erro de conexão";
+            message = @"A rede deste aparelho está bloqueando a transmissão. Confira se a Tailscale está ligada no iPhone.";
         }
         else {
             switch (errorCode) {
@@ -819,8 +819,8 @@ static const CGFloat DIVIDER_H = 22;
                     return;
                     
                 case ML_ERROR_NO_VIDEO_TRAFFIC:
-                    title = @"Connection Error";
-                    message = @"No video received from host.";
+                    title = @"Erro de conexão";
+                    message = @"Nenhum vídeo chegou do PC. Confira se o Sunshine está rodando (acesso-remoto no PC).";
                     if (portFlags != 0) {
                         char failingPorts[256];
                         LiStringifyPortFlags(portFlags, "\n", failingPorts, sizeof(failingPorts));
@@ -829,18 +829,18 @@ static const CGFloat DIVIDER_H = 22;
                     break;
                     
                 case ML_ERROR_NO_VIDEO_FRAME:
-                    title = @"Connection Error";
-                    message = @"Your network connection isn't performing well. Reduce your video bitrate setting or try a faster connection.";
+                    title = @"Erro de conexão";
+                    message = @"A conexão está ruim. Diminua a taxa de bits nos ajustes ou use uma rede mais rápida.";
                     break;
                     
                 case ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
                 case ML_ERROR_PROTECTED_CONTENT:
-                    title = @"Connection Error";
+                    title = @"Erro de conexão";
                     message = @"Something went wrong on your host PC when starting the stream.\n\nMake sure you don't have any DRM-protected content open on your host PC. You can also try restarting your host PC.\n\nIf the issue persists, try reinstalling your GPU drivers and GeForce Experience.";
                     break;
                     
                 case ML_ERROR_FRAME_CONVERSION:
-                    title = @"Connection Error";
+                    title = @"Erro de conexão";
                     message = @"The host PC reported a fatal video encoding error.\n\nTry disabling HDR mode, changing the streaming resolution, or changing your host PC's display resolution.";
                     break;
                     
@@ -856,8 +856,8 @@ static const CGFloat DIVIDER_H = 22;
                         errorString = [NSString stringWithFormat:@"%d", errorCode];
                     }
                     
-                    title = @"Connection Terminated";
-                    message = [NSString stringWithFormat: @"The connection was terminated\n\nError code: %@", errorString];
+                    title = @"Conexão encerrada";
+                    message = [NSString stringWithFormat: @"A conexão caiu\n\nCódigo do erro: %@", errorString];
                     break;
                 }
             }
@@ -909,7 +909,7 @@ static const CGFloat DIVIDER_H = 22;
             message = [message stringByAppendingString:@"\n\nYour device's network connection is blocking Moonlight. Streaming may not work while connected to this network."];
         }
         
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Connection Failed"
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Falha na conexão"
                                                                        message:message
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         [Utils addHelpOptionToDialog:alert];
@@ -929,7 +929,7 @@ static const CGFloat DIVIDER_H = 22;
         // Allow the display to go to sleep now
         [UIApplication sharedApplication].idleTimerDisabled = NO;
         
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Connection Error"
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Erro de conexão"
                                                                        message:message
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         [Utils addHelpOptionToDialog:alert];
@@ -980,10 +980,10 @@ static const CGFloat DIVIDER_H = 22;
                 
             case CONN_STATUS_POOR:
                 if (self->_streamConfig.bitRate > 5000) {
-                    [self updateOverlayText:@"Slow connection to PC\nReduce your bitrate"];
+                    [self updateOverlayText:@"Conexão lenta com o PC\nDiminua a taxa de bits"];
                 }
                 else {
-                    [self updateOverlayText:@"Poor connection to PC"];
+                    [self updateOverlayText:@"Conexão fraca com o PC"];
                 }
                 break;
         }
