@@ -400,7 +400,7 @@ static UIColor* pantera(int hex, CGFloat alpha) {
 typedef NS_ENUM(NSInteger, PadStripItem) {
     PadStripNone = -1,
     PadStripKeyboard, PadStripPcKeys, PadStripVoice, PadStripTrackpad, PadStripZoom, PadStripMonitor,
-    PadStripNetwork, PadStripVideo, PadStripSettings, PadStripLeave,
+    PadStripNetwork, PadStripSettings, PadStripLeave,
 };
 
 static const CGFloat STRIP_W = 62;
@@ -435,7 +435,7 @@ static const CGFloat STRIP_W = 62;
         [self addSubview:_strip];
         NSArray* spec = @[@[@"Teclado", @"keyboard"], @[@"Teclas", @"command"], @[@"Voz", @"mic"],
                           @[@"Touchpad", @"hand.point.up.left"], @[@"Zoom", @"plus.magnifyingglass"],
-                          @[@"Monitor", @"display.2"], @[@"Rede", @"wifi"], @[@"Vídeo", @"video.slash"],
+                          @[@"Monitor", @"display.2"], @[@"Imagem", @"slider.horizontal.3"],
                           @[@"Ajustes", @"gearshape"], @[@"Sair", @"xmark"]];
         NSMutableArray* items = [NSMutableArray array];
         for (NSUInteger i = 0; i < spec.count; i++) {
@@ -509,16 +509,16 @@ static const CGFloat STRIP_W = 62;
         [self addSubview:_monitorCard];
 
         _networkCard = [self card];
-        _networkLabel = [self cardTitle:@"Qualidade da imagem"];
+        _networkLabel = [self cardTitle:@"Imagem e rede"];
         [_networkCard addSubview:_networkLabel];
         NSArray* nets = @[@[@"Automática", @"Wi-Fi alta, 4G leve"], @[@"Alta", @"dos ajustes"], @[@"Econômica", @"720p · 6 Mbps"],
-                          @[@"Aplicar", @"reconecta já"]];
+                          @[@"Aplicar", @"reconecta já"], @[@"Desligar vídeo", @"só touchpad"]];
         for (NSUInteger i = 0; i < nets.count; i++) {
             UIButton* b = [self cardButton:nets[i][0] sub:nets[i][1] action:@selector(networkTapped:)];
-            b.tag = i < 3 ? (NSInteger)i : 9;
+            b.tag = i < 3 ? (NSInteger)i : i == 3 ? 9 : 8;
             [_networkCard addSubview:b];
         }
-        [_networkCard addSubview:[self cardNote:@"A escolha vale a partir da próxima conexão. Aplicar reconecta agora, em cerca de 3 segundos."]];
+        [_networkCard addSubview:[self cardNote:@"A qualidade vale a partir da próxima conexão; Aplicar reconecta agora, em cerca de 3 segundos. Sem vídeo, quase não gasta dados."]];
         _networkCard.hidden = YES;
         [self addSubview:_networkCard];
 
@@ -596,7 +596,8 @@ static const CGFloat STRIP_W = 62;
     CGFloat top = MAX(safe.top, 6), bottom = MAX(safe.bottom, 6);
     CGFloat itemH = (b.size.height - top - bottom) / _items.count;
     for (UIButton* item in _items) {
-        item.frame = CGRectMake(safe.left + 5, top + item.tag * itemH + 2, STRIP_W - 10, itemH - 4);
+        // Cada botão ocupa a fatia inteira (sem vão), para o alvo de toque ficar o maior possível.
+        item.frame = CGRectMake(safe.left + 4, top + item.tag * itemH, STRIP_W - 8, itemH);
         CGFloat ih = item.bounds.size.height;
         [item viewWithTag:100].frame = CGRectMake(0, ih * 0.08, item.bounds.size.width, ih * 0.55);
         [item viewWithTag:101].frame = CGRectMake(2, ih * 0.6, item.bounds.size.width - 4, ih * 0.32);
@@ -613,7 +614,7 @@ static const CGFloat STRIP_W = 62;
 
     [self layoutCard:_zoomCard columns:4 width:MIN(360, area.size.width - 24)];
     [self layoutCard:_monitorCard columns:3 width:MIN(380, area.size.width - 24)];
-    [self layoutCard:_networkCard columns:4 width:MIN(420, area.size.width - 24)];
+    [self layoutCard:_networkCard columns:3 width:MIN(400, area.size.width - 24)];
 }
 
 - (void)layoutCard:(UIView*)card columns:(NSInteger)columns width:(CGFloat)w {
@@ -652,10 +653,10 @@ static const CGFloat STRIP_W = 62;
     _monitorCard.hidden = _open != PadStripMonitor;
     _networkCard.hidden = _open != PadStripNetwork;
     PadNetworkProfile profile = [PadSettings networkProfile];
-    _networkLabel.text = [NSString stringWithFormat:@"Qualidade da imagem · agora em %@", [PadSettings onCellular] ? @"dados móveis" : @"Wi-Fi"];
+    _networkLabel.text = [NSString stringWithFormat:@"Imagem e rede · agora em %@", [PadSettings onCellular] ? @"dados móveis" : @"Wi-Fi"];
     for (UIView* v in _networkCard.subviews) {
         if (![v isKindOfClass:[UIButton class]]) continue;
-        v.backgroundColor = v.tag == profile ? pantera(0x7a1c21, 1) : v.tag == 9 ? pantera(0x4a161a, 1) : pantera(0x332925, 1);
+        v.backgroundColor = v.tag == profile ? pantera(0x7a1c21, 1) : v.tag >= 8 ? pantera(0x4a161a, 1) : pantera(0x332925, 1);
     }
     _zoomLabel.text = [NSString stringWithFormat:@"Zoom da imagem · %@×", [[self class] decimal:_zoom]];
     for (UIView* v in _zoomCard.subviews) {
@@ -674,7 +675,6 @@ static const CGFloat STRIP_W = 62;
     [PadHaptics play:PadHapticBar];
     PadStripItem which = item.tag;
     switch (which) {
-        case PadStripVideo: [self.delegate landscapeWantsVideoToggled:self]; return;
         case PadStripVoice:
             [self resetInput];
             [self.delegate landscapeWantsDictation:self];
@@ -697,10 +697,11 @@ static const CGFloat STRIP_W = 62;
 
 - (void)networkTapped:(UIButton*)b {
     [PadHaptics play:PadHapticBar];
-    if (b.tag == 9) {
+    if (b.tag == 9 || b.tag == 8) {
         _open = PadStripNone;
         [self updateItems];
-        [self.delegate landscapeWantsReconnect:self];
+        if (b.tag == 9) [self.delegate landscapeWantsReconnect:self];
+        else [self.delegate landscapeWantsVideoToggled:self];
         return;
     }
     [PadSettings setNetworkProfile:(PadNetworkProfile)b.tag];
