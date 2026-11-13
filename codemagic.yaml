@@ -1,0 +1,44 @@
+# Build do Pantera (iMoonlight) no Codemagic: gera o iMoonlight.ipa sem assinatura,
+# para instalar com Sideloadly, AltStore ou SideStore (que assinam com o seu Apple ID).
+# Mesmos passos de .github/workflows/build-ipa.yml.
+workflows:
+  ipa-sem-assinatura:
+    name: IPA sem assinatura
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Submódulos
+        script: git submodule update --init --recursive
+      - name: Versão do Xcode
+        script: xcodebuild -version
+      - name: Compilar (sem assinatura)
+        script: |
+          xcodebuild \
+            -project Moonlight.xcodeproj \
+            -scheme Moonlight \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > xcodebuild.log 2>&1 || {
+              grep -n -A8 "error:" xcodebuild.log | head -300
+              tail -40 xcodebuild.log
+              exit 1
+            }
+          tail -3 xcodebuild.log
+      - name: Empacotar IPA
+        script: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Moonlight.app Payload/
+          test -f Payload/Moonlight.app/words.txt
+          test -f Payload/Moonlight.app/words-pt.txt
+          zip -qry iMoonlight.ipa Payload
+          ls -lh iMoonlight.ipa
+    artifacts:
+      - iMoonlight.ipa
+      - xcodebuild.log
