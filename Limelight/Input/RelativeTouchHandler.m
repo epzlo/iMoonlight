@@ -20,7 +20,7 @@ static const int REFERENCE_HEIGHT = 720;
 // Lpz Remote: a finger that starts moving within this distance (screen points) of the cursor,
 // on any side, moves the cursor from where it is, keeping the same offset to the finger; farther
 // away, the cursor jumps to just above the finger and follows it.
-static const CGFloat NEAR_CURSOR_DISTANCE = 80;
+static const CGFloat NEAR_CURSOR_DISTANCE = 160; // cerca de 2,5 cm no iPhone 11 (163 pt por polegada)
 // O cursor fica esta distância (pontos de tela) acima do dedo, para o dedo não cobrir a ponta da seta.
 static const CGFloat CURSOR_LIFT = 48;
 typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar };
