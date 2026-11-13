@@ -36,6 +36,10 @@
 
 #if !TARGET_OS_TV
 - (void) updateCursorLocation:(CGPoint)location isMouse:(BOOL)isMouse;
+/// Lpz Remote: a point in this view, in stream pixels (streamSize = stream resolution).
+- (CGPoint) streamPixelForViewPoint:(CGPoint)point streamSize:(CGSize)streamSize;
+/// A point in stream pixels, back in this view's coordinates.
+- (CGPoint) viewPointForStreamPixel:(CGPoint)pixel streamSize:(CGSize)streamSize;
 #endif
 
 @end

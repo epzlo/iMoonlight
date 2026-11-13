@@ -7,11 +7,21 @@
 //
 
 #import "RelativeTouchHandler.h"
+#if !TARGET_OS_TV
+#import "PadOutput.h"
+#endif
 
 #include <Limelight.h>
 
 static const int REFERENCE_WIDTH = 1280;
 static const int REFERENCE_HEIGHT = 720;
+
+#if !TARGET_OS_TV
+// Lpz Remote: a finger that starts moving within this distance (screen points) of the cursor
+// moves the cursor from where it is; farther away, the cursor jumps under the finger and follows it.
+static const CGFloat NEAR_CURSOR_DISTANCE = 70;
+typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar };
+#endif
 
 @implementation RelativeTouchHandler {
     CGPoint touchLocation, originalLocation;
@@ -19,6 +29,10 @@ static const int REFERENCE_HEIGHT = 720;
     BOOL isDragging;
     NSTimer* dragTimer;
     NSUInteger peakTouchCount;
+#if !TARGET_OS_TV
+    HybridMode hybridMode;
+    CGPoint hybridCursorStart;
+#endif
     
 #if TARGET_OS_TV
     UIGestureRecognizer* remotePressRecognizer;
@@ -60,6 +74,9 @@ static const int REFERENCE_HEIGHT = 720;
 
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
     touchMoved = false;
+#if !TARGET_OS_TV
+    hybridMode = HybridUndecided;
+#endif
     peakTouchCount = [[event allTouches] count];
     if ([[event allTouches] count] == 1) {
         UITouch *touch = [[event allTouches] anyObject];
@@ -80,10 +97,54 @@ static const int REFERENCE_HEIGHT = 720;
     }
 }
 
+#if !TARGET_OS_TV
+// One-finger movement while the app tracks the cursor. Returns NO to fall back to relative motion.
+- (BOOL)hybridMoveTo:(CGPoint)currentLocation {
+    PadOutput* out = [PadOutput shared];
+    if (!out.tracksCursor || ![view isKindOfClass:[StreamView class]]) return NO;
+    StreamView* sv = (StreamView*)view;
+    CGSize ss = out.streamSize;
+    
+    if (hybridMode == HybridUndecided) {
+        // A tap never moves the cursor: decide only once the finger has really moved.
+        if (![self isConfirmedMove:currentLocation from:originalLocation]) return YES;
+        if (isDragging) {
+            hybridMode = HybridNear;   // holding the button: always drag from where the cursor is
+        } else {
+            // Compare on screen, so the local zoom of the image counts.
+            CGPoint cursorInView = [sv viewPointForStreamPixel:out.cursorPosition streamSize:ss];
+            CGPoint a = [view convertPoint:cursorInView toView:nil];
+            CGPoint b = [view convertPoint:originalLocation toView:nil];
+            hybridMode = hypot(a.x - b.x, a.y - b.y) <= NEAR_CURSOR_DISTANCE ? HybridNear : HybridFar;
+        }
+        hybridCursorStart = out.cursorPosition;
+    }
+    
+    if (hybridMode == HybridFar) {
+        [out moveCursorTo:[sv streamPixelForViewPoint:currentLocation streamSize:ss]];
+    } else {
+        // Same distance the finger travelled over the image, from where the cursor was.
+        CGPoint p0 = [sv streamPixelForViewPoint:originalLocation streamSize:ss];
+        CGPoint p1 = [sv streamPixelForViewPoint:currentLocation streamSize:ss];
+        [out moveCursorTo:CGPointMake(hybridCursorStart.x + p1.x - p0.x, hybridCursorStart.y + p1.y - p0.y)];
+    }
+    return YES;
+}
+#endif
+
 - (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
     if ([[event allTouches] count] == 1) {
         UITouch *touch = [[event allTouches] anyObject];
         CGPoint currentLocation = [touch locationInView:view];
+#if !TARGET_OS_TV
+        if ([self hybridMoveTo:currentLocation]) {
+            if ([self isConfirmedMove:currentLocation from:originalLocation]) {
+                touchMoved = true;
+            }
+            touchLocation = currentLocation;
+            return;
+        }
+#endif
         
         if (touchLocation.x != currentLocation.x ||
             touchLocation.y != currentLocation.y)

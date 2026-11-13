@@ -672,6 +672,22 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 }
 
 #if !TARGET_OS_TV
+- (CGPoint) streamPixelForViewPoint:(CGPoint)point streamSize:(CGSize)streamSize {
+    CGPoint p = [self adjustCoordinatesForVideoArea:point];
+    CGSize v = [self getVideoAreaSize];
+    if (v.width <= 0 || v.height <= 0) return CGPointZero;
+    return CGPointMake(p.x / v.width * streamSize.width, p.y / v.height * streamSize.height);
+}
+
+- (CGPoint) viewPointForStreamPixel:(CGPoint)pixel streamSize:(CGSize)streamSize {
+    CGSize v = [self getVideoAreaSize];
+    if (streamSize.width <= 0 || streamSize.height <= 0) return CGPointZero;
+    CGPoint origin = CGPointMake(self.bounds.origin.x + self.bounds.size.width / 2 - v.width / 2,
+                                 self.bounds.origin.y + self.bounds.size.height / 2 - v.height / 2);
+    return CGPointMake(origin.x + pixel.x / streamSize.width * v.width,
+                       origin.y + pixel.y / streamSize.height * v.height);
+}
+
 - (void) updateCursorLocation:(CGPoint)location isMouse:(BOOL)isMouse {
     CGPoint normalizedLocation = [self adjustCoordinatesForVideoArea:location];
     CGSize videoSize = [self getVideoAreaSize];

@@ -1,4 +1,4 @@
-# <img src="art/pantera-icon-1024.png" width="64" align="center" alt=""> Pantera (fork do iMoonlight para Linux/KDE)
+# <img src="art/lpz-remote-icon-1024.png" width="64" align="center" alt=""> Lpz Remote (fork do iMoonlight para Linux/KDE)
 
 Cliente Moonlight para iPhone pensado para controlar um PC **Linux com KDE Plasma** rodando
 [Sunshine](https://github.com/LizardByte/Sunshine), de longe, pela Tailscale. É um fork do
@@ -36,8 +36,11 @@ português e o visual Pantera (sangue e latão sobre preto).
   deitada: teclado e teclas do PC embaixo, touchpad translúcido à direita (a imagem continua
   visível por baixo), zoom e monitores em cartões. Tocar na imagem fora dos painéis continua
   controlando o ponteiro, como no Moonlight.
-- **Identidade própria:** nome Pantera, ícone novo (`art/pantera-icon.py` gera o ícone), cores
-  do tema Pantera do Plasma e telas principais em português.
+- **Identidade própria:** nome Lpz Remote, ícone da pantera (`art/lpz-remote-icon.py` gera os
+  tamanhos a partir de `art/lpz-remote-original.png`), cores do tema Pantera do Plasma e telas
+  principais em português.
+- **Cursor no centro ao conectar:** ao abrir a sessão o ponteiro vai para o centro do monitor
+  transmitido, mesmo que tenha ficado no monitor vertical.
 
 ## Instalar no iPhone
 
@@ -47,7 +50,7 @@ português e o visual Pantera (sangue e latão sobre preto).
    Com Apple ID gratuito o app precisa ser reinstalado a cada 7 dias.
 3. No iPhone: Ajustes > Geral > VPN e Gerenciamento de Dispositivo, confie no seu Apple ID; no
    iOS 16 ou mais novo, ligue o Modo de Desenvolvedor.
-4. Abra o Pantera, toque em + e digite o IP do PC na Tailscale.
+4. Abra o Lpz Remote, toque em + e digite o IP do PC na Tailscale.
 
 ## Requisitos no PC
 

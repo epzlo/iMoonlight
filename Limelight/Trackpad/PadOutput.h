@@ -7,6 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -66,8 +67,21 @@ typedef NS_ENUM(NSInteger, PadSpecialKey) {
 
 + (instancetype)shared;
 
-/// Relative pointer movement, in host pixels. Fractions carry over to the next call.
+/// Pointer movement, in host pixels. Fractions carry over to the next call.
+/// Lpz Remote: once the stream size is known (startCursorTrackingWidth:height:), the app
+/// keeps the cursor position itself and sends absolute positions, so it always knows where
+/// the cursor is (the cursor stays inside the streamed monitor).
 - (void)moveByX:(float)dx y:(float)dy;
+/// Starts tracking the cursor for a stream of this size and puts it in the centre.
+- (void)startCursorTrackingWidth:(int)width height:(int)height;
+- (void)stopCursorTracking;
+/// YES while the app knows where the cursor is.
+@property (nonatomic, readonly) BOOL tracksCursor;
+/// Cursor position in stream pixels (valid while tracksCursor).
+@property (nonatomic, readonly) CGPoint cursorPosition;
+@property (nonatomic, readonly) CGSize streamSize;
+/// Puts the cursor at this point, in stream pixels.
+- (void)moveCursorTo:(CGPoint)point;
 - (void)click;
 - (void)rightClick;
 - (void)dragBegin;

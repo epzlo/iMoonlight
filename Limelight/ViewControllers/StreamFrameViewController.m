@@ -16,6 +16,7 @@
 #if !TARGET_OS_TV
 #import "PadPanelView.h"
 #import "PadSettings.h"
+#import "PadOutput.h"
 #import "PadSettingsViewController.h"
 #endif
 
@@ -773,6 +774,10 @@ static const CGFloat DIVIDER_H = 22;
     [self returnToMainFrame];
 }
 
+- (void) centerRemoteCursor {
+    [[PadOutput shared] startCursorTrackingWidth:self->_streamConfig.width height:self->_streamConfig.height];
+}
+
 - (void) connectionStarted {
     Log(LOG_I, @"Connection started");
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -784,6 +789,14 @@ static const CGFloat DIVIDER_H = 22;
         [self->_streamView showOnScreenControls];
         
         [self->_controllerSupport connectionEstablished];
+        
+        // Lpz Remote: o cursor pode ter ficado no monitor vertical (fora da imagem transmitida).
+        // Uma posição absoluta leva ele ao centro do monitor transmitido; repete depois que o
+        // PC termina de trocar a escala (sunshine-sessao conectar).
+        [self centerRemoteCursor];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self centerRemoteCursor];
+        });
         
         if (self->_settings.statsOverlay) {
             self->_statsUpdateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0f
@@ -797,6 +810,7 @@ static const CGFloat DIVIDER_H = 22;
 
 - (void)connectionTerminated:(int)errorCode {
     Log(LOG_I, @"Connection terminated: %d", errorCode);
+    [[PadOutput shared] stopCursorTracking];
     
     unsigned int portFlags = LiGetPortFlagsFromTerminationErrorCode(errorCode);
     unsigned int portTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);

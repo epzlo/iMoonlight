@@ -13,7 +13,7 @@
 		<string>pt-BR</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Pantera</string>
+	<string>Lpz Remote</string>
 	<key>CFBundleExecutable</key>
 	<string>${EXECUTABLE_NAME}</string>
 	<key>CFBundleIdentifier</key>

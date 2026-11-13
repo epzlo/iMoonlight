@@ -42,7 +42,31 @@ static const useconds_t KEY_HOLD_US = 25 * 1000;
 
 #pragma mark - Mouse
 
+- (void)startCursorTrackingWidth:(int)width height:(int)height {
+    if (width <= 0 || height <= 0) return;
+    _streamSize = CGSizeMake(width, height);
+    _tracksCursor = YES;
+    [self moveCursorTo:CGPointMake(width / 2.0, height / 2.0)];
+}
+
+- (void)stopCursorTracking {
+    _tracksCursor = NO;
+}
+
+- (void)moveCursorTo:(CGPoint)point {
+    if (!_tracksCursor) return;
+    float x = MAX(0, MIN(_streamSize.width - 1, point.x));
+    float y = MAX(0, MIN(_streamSize.height - 1, point.y));
+    _cursorPosition = CGPointMake(x, y);
+    LiSendMousePositionEvent((short)lroundf(x), (short)lroundf(y),
+                             (short)_streamSize.width, (short)_streamSize.height);
+}
+
 - (void)moveByX:(float)dx y:(float)dy {
+    if (_tracksCursor) {
+        [self moveCursorTo:CGPointMake(_cursorPosition.x + dx, _cursorPosition.y + dy)];
+        return;
+    }
     _moveRemainderX += dx;
     _moveRemainderY += dy;
     short sx = (short)MAX(-32000, MIN(32000, _moveRemainderX));

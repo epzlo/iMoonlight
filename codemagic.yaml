@@ -8,6 +8,13 @@ workflows:
     max_build_duration: 60
     environment:
       xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: linux-kde
+          include: true
+      cancel_previous_builds: true
     scripts:
       - name: Submódulos
         script: git submodule update --init --recursive
