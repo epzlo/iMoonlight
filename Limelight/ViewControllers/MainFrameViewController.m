@@ -37,6 +37,11 @@
 
 #include <Limelight.h>
 
+#if !TARGET_OS_TV
+#define LPZ_RGB(h) [UIColor colorWithRed:((h>>16)&0xFF)/255.0 green:((h>>8)&0xFF)/255.0 blue:(h&0xFF)/255.0 alpha:1]
+static NSString* const LpzHeaderId = @"LpzHeader";
+#endif
+
 @implementation MainFrameViewController {
     NSOperationQueue* _opQueue;
     TemporaryHost* _selectedHost;
@@ -51,6 +56,7 @@
     UIScrollView* hostScrollView;
     FrontViewPosition currentPosition;
     NSArray* _sortedAppList;
+    NSArray* _powerAppList;   // Lpz Remote: Desligar/Reiniciar PC, mostrados como botões
     NSCache* _boxArtCache;
     bool _background;
 #if TARGET_OS_TV
@@ -119,16 +125,23 @@ static NSMutableSet* hostList;
 - (void)disableUpButton {
 #if !TARGET_OS_TV
     [self->_upButton setTitle:nil];
+    [self->_upButton setImage:nil];
 #endif
 }
 
 - (void)enableUpButton {
 #if !TARGET_OS_TV
-    [self->_upButton setTitle:@"Trocar de PC"];
+    [self->_upButton setTitle:nil];
+    [self->_upButton setImage:[UIImage systemImageNamed:@"desktopcomputer"]];
+    self->_upButton.accessibilityLabel = @"Trocar de PC";
 #endif
 }
 
 - (void)updateTitle {
+#if !TARGET_OS_TV
+    [self.collectionView.collectionViewLayout invalidateLayout];
+    [self.collectionView reloadData];
+#endif
     if (_selectedHost != nil) {
         self.title = _selectedHost.name;
     }
@@ -307,6 +320,8 @@ static NSMutableSet* hostList;
 }
 
 - (void) receivedAssetForApp:(TemporaryApp*)app {
+    // Lpz Remote: a capa é o print mais recente do PC; troca a que estava em memória
+    [_boxArtCache removeObjectForKey:app];
     // Update the box art cache now so we don't have to do it
     // on the main thread
     [self updateBoxArtCacheForApp:app];
@@ -840,6 +855,24 @@ static NSMutableSet* hostList;
 
 - (void) appClicked:(TemporaryApp *)app view:(UIView *)view {
     Log(LOG_D, @"Clicked app: %@", app.name);
+#if !TARGET_OS_TV
+    if ([UIAppView lpzIsPowerApp:app] && view != nil) {
+        BOOL off = [app.name isEqualToString:@"Desligar PC"];
+        UIAlertController* ask = [UIAlertController alertControllerWithTitle:app.name
+                                                                     message:off ? @"O PC fecha os programas e desliga. Para ligar de novo, use a tomada inteligente." : @"O PC fecha os programas e reinicia. Em cerca de 1 minuto ele volta pronto para conectar."
+                                                              preferredStyle:UIAlertControllerStyleAlert];
+        [ask addAction:[UIAlertAction actionWithTitle:@"Cancelar" style:UIAlertActionStyleCancel handler:nil]];
+        [ask addAction:[UIAlertAction actionWithTitle:off ? @"Desligar" : @"Reiniciar" style:UIAlertActionStyleDestructive handler:^(UIAlertAction* a) {
+            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"lpz.powerLaunch"];
+            [self appClicked:app view:nil];
+        }]];
+        [[self activeViewController] presentViewController:ask animated:YES completion:nil];
+        return;
+    }
+    if (![UIAppView lpzIsPowerApp:app]) {
+        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"lpz.powerLaunch"];
+    }
+#endif
     
     [_appManager stopRetrieving];
     
@@ -977,6 +1010,9 @@ static NSMutableSet* hostList;
     }
     
     _boxArtCache = [[NSCache alloc] init];
+#if !TARGET_OS_TV
+    [self lpzStyleHome];
+#endif
         
     hostScrollView = [[ComputerScrollView alloc] init];
     hostScrollView.frame = CGRectMake(0, self.navigationController.navigationBar.frame.origin.y + self.navigationController.navigationBar.frame.size.height, self.view.frame.size.width, self.view.frame.size.height / 2);
@@ -1338,6 +1374,24 @@ static NSMutableSet* hostList;
         }
         _sortedAppList = visibleAppList;
     }
+#if !TARGET_OS_TV
+    {
+        NSMutableArray* main = [NSMutableArray array];
+        NSMutableArray* power = [NSMutableArray array];
+        for (TemporaryApp* app in _sortedAppList) {
+            [([UIAppView lpzIsPowerApp:app] ? power : main) addObject:app];
+        }
+        // Área de trabalho sempre primeiro
+        [main sortUsingComparator:^NSComparisonResult(TemporaryApp* a, TemporaryApp* b) {
+            BOOL da = [a.name isEqualToString:@"Desktop"], db = [b.name isEqualToString:@"Desktop"];
+            if (da != db) return da ? NSOrderedAscending : NSOrderedDescending;
+            return [a compareName:b];
+        }];
+        [power sortUsingComparator:^NSComparisonResult(TemporaryApp* a, TemporaryApp* b) { return [a compareName:b]; }];
+        _sortedAppList = main;
+        _powerAppList = power;
+    }
+#endif
     
     [hostScrollView removeFromSuperview];
     [self.collectionView reloadData];
@@ -1346,6 +1400,26 @@ static NSMutableSet* hostList;
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
     UICollectionViewCell* cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"AppCell" forIndexPath:indexPath];
     
+#if !TARGET_OS_TV
+    {
+        BOOL power = indexPath.section == 1;
+        TemporaryApp* app = power ? _powerAppList[indexPath.row] : _sortedAppList[indexPath.row];
+        UIAppView* appView = [[UIAppView alloc] initWithApp:app cache:_boxArtCache andCallback:self];
+        [appView lpzLayoutWithSize:cell.bounds.size power:power];
+        [cell.subviews.firstObject removeFromSuperview];
+        [cell addSubview:appView];
+        cell.backgroundColor = UIColor.clearColor;
+        cell.layer.borderWidth = 0;
+        cell.layer.masksToBounds = NO;
+        cell.layer.shadowColor = UIColor.blackColor.CGColor;
+        cell.layer.shadowOffset = CGSizeMake(0, 8);
+        cell.layer.shadowRadius = power ? 6 : 14;
+        cell.layer.shadowOpacity = power ? 0.25f : 0.45f;
+        cell.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:cell.bounds cornerRadius:power ? 14 : 18].CGPath;
+        cell.exclusiveTouch = YES;
+        return cell;
+    }
+#endif
     TemporaryApp* app = _sortedAppList[indexPath.row];
     UIAppView* appView = [[UIAppView alloc] initWithApp:app cache:_boxArtCache andCallback:self];
     
@@ -1376,10 +1450,130 @@ static NSMutableSet* hostList;
 }
 
 - (NSInteger)numberOfSectionsInCollectionView:(UICollectionView *)collectionView {
+#if !TARGET_OS_TV
+    return 2; // apps + energia
+#else
     return 1; // App collection only
+#endif
 }
 
+#if !TARGET_OS_TV
+#pragma mark - Lpz Remote: tela inicial
+
+- (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)indexPath {
+    CGFloat inset = 16;
+    CGFloat w = cv.bounds.size.width - cv.adjustedContentInset.left - cv.adjustedContentInset.right - 2 * inset;
+    BOOL wide = cv.bounds.size.width > cv.bounds.size.height;   // deitado / iPad: duas colunas
+    if (indexPath.section == 1) {
+        return CGSizeMake(floor((w - 12) / 2), 54);
+    }
+    CGFloat cw = wide ? floor((w - 16) / 2) : w;
+    return CGSizeMake(cw, round(cw * 9.0 / 16.0) + 58);
+}
+
+- (UIEdgeInsets)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout insetForSectionAtIndex:(NSInteger)section {
+    return section == 0 ? UIEdgeInsetsMake(4, 16, 12, 16) : UIEdgeInsetsMake(4, 16, 28, 16);
+}
+
+- (CGFloat)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout minimumLineSpacingForSectionAtIndex:(NSInteger)section {
+    return section == 0 ? 18 : 12;
+}
+
+- (CGFloat)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout minimumInteritemSpacingForSectionAtIndex:(NSInteger)section {
+    return 12;
+}
+
+- (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout referenceSizeForHeaderInSection:(NSInteger)section {
+    if (_selectedHost == nil) return CGSizeZero;
+    if (section == 1 && _powerAppList.count == 0) return CGSizeZero;
+    return CGSizeMake(cv.bounds.size.width, section == 0 ? 58 : 40);
+}
+
+- (UICollectionReusableView *)collectionView:(UICollectionView *)cv viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
+    UICollectionReusableView* v = [cv dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:LpzHeaderId forIndexPath:indexPath];
+    [v.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    if (![kind isEqualToString:UICollectionElementKindSectionHeader]) return v;
+    CGFloat x = 16 + cv.adjustedContentInset.left;
+    if (indexPath.section == 0) {
+        UILabel* kicker = [[UILabel alloc] initWithFrame:CGRectMake(x, 12, v.bounds.size.width - 2 * x, 14)];
+        NSString* online = _selectedHost.state == StateOnline ? @"ONLINE" : @"PROCURANDO";
+        kicker.attributedText = [[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"●  %@", online]
+            attributes:@{NSKernAttributeName: @2, NSFontAttributeName: [UIFont systemFontOfSize:11 weight:UIFontWeightBold],
+                         NSForegroundColorAttributeName: _selectedHost.state == StateOnline ? LPZ_RGB(0xC8A15A) : [LPZ_RGB(0xEFE7DE) colorWithAlphaComponent:0.5]}];
+        [v addSubview:kicker];
+        UILabel* name = [[UILabel alloc] initWithFrame:CGRectMake(x, 26, v.bounds.size.width - 2 * x, 28)];
+        name.text = _selectedHost.name ?: @"";
+        name.textColor = LPZ_RGB(0xEFE7DE);
+        name.font = [UIFont systemFontOfSize:24 weight:UIFontWeightHeavy];
+        [v addSubview:name];
+    } else {
+        UILabel* l = [[UILabel alloc] initWithFrame:CGRectMake(x, 16, v.bounds.size.width - 2 * x, 16)];
+        l.attributedText = [[NSAttributedString alloc] initWithString:@"ENERGIA"
+            attributes:@{NSKernAttributeName: @2, NSFontAttributeName: [UIFont systemFontOfSize:11 weight:UIFontWeightBold],
+                         NSForegroundColorAttributeName: [LPZ_RGB(0xEFE7DE) colorWithAlphaComponent:0.5]}];
+        [v addSubview:l];
+    }
+    return v;
+}
+
+- (void)lpzStyleHome {
+    UIColor* base = LPZ_RGB(0x16110F);
+    self.view.backgroundColor = base;
+    self.collectionView.backgroundColor = base;
+    self.collectionView.alwaysBounceVertical = YES;
+    [self.collectionView registerClass:[UICollectionReusableView class]
+            forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:LpzHeaderId];
+    
+    UINavigationBar* bar = self.navigationController.navigationBar;
+    UINavigationBarAppearance* ap = [[UINavigationBarAppearance alloc] init];
+    [ap configureWithOpaqueBackground];
+    ap.backgroundColor = base;
+    ap.shadowColor = [LPZ_RGB(0xC8A15A) colorWithAlphaComponent:0.18];
+    ap.titleTextAttributes = @{NSForegroundColorAttributeName: LPZ_RGB(0xEFE7DE)};
+    bar.standardAppearance = ap;
+    bar.scrollEdgeAppearance = ap;
+    bar.compactAppearance = ap;
+    bar.tintColor = LPZ_RGB(0xC8A15A);
+    bar.barStyle = UIBarStyleBlack;
+    
+    [_settingsButton setTitle:nil];
+    [_settingsButton setImage:[UIImage systemImageNamed:@"gearshape"]];
+    _settingsButton.accessibilityLabel = @"Ajustes";
+    
+    // Logotipo empilhado: "Lpz" em cima, "REMOTE" embaixo
+    UIView* logo = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, 40)];
+    UILabel* top = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 120, 24)];
+    top.text = @"Lpz";
+    top.textAlignment = NSTextAlignmentCenter;
+    top.textColor = LPZ_RGB(0xC8A15A);
+    top.font = [UIFont systemFontOfSize:23 weight:UIFontWeightHeavy];
+    UILabel* bottom = [[UILabel alloc] initWithFrame:CGRectMake(0, 24, 120, 13)];
+    bottom.attributedText = [[NSAttributedString alloc] initWithString:@"REMOTE"
+        attributes:@{NSKernAttributeName: @4.5, NSFontAttributeName: [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold],
+                     NSForegroundColorAttributeName: [LPZ_RGB(0xEFE7DE) colorWithAlphaComponent:0.8]}];
+    bottom.textAlignment = NSTextAlignmentCenter;
+    [logo addSubview:top];
+    [logo addSubview:bottom];
+    logo.isAccessibilityElement = YES;
+    logo.accessibilityLabel = @"Lpz Remote";
+    self.navigationItem.titleView = logo;
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:nil completion:^(id ctx) {
+        [self.collectionView.collectionViewLayout invalidateLayout];
+        [self.collectionView reloadData];
+    }];
+}
+#endif
+
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
+#if !TARGET_OS_TV
+    if (section == 1) {
+        return (_selectedHost != nil && _powerAppList != nil) ? _powerAppList.count : 0;
+    }
+#endif
     if (_selectedHost != nil && _sortedAppList != nil) {
         return _sortedAppList.count;
     }

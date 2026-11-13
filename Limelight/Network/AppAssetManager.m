@@ -46,7 +46,11 @@ static const int MAX_REQUEST_COUNT = 4;
 
 - (void) retrieveAssetsFromHost:(TemporaryHost*)host {
     for (TemporaryApp* app in host.appList) {
-        if (![[NSFileManager defaultManager] fileExistsAtPath:[AppAssetManager boxArtPathForApp:app]]) {
+        // Lpz Remote: a capa é um print do PC atualizado a cada sessão, então baixa de novo
+        // quando a cópia local tem mais de 30 s (a antiga continua aparecendo até chegar a nova).
+        NSString* path = [AppAssetManager boxArtPathForApp:app];
+        NSDate* modified = [[[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil] fileModificationDate];
+        if (modified == nil || -[modified timeIntervalSinceNow] > 30) {
             AppAssetRetriever* retriever = [[AppAssetRetriever alloc] init];
             retriever.app = app;
             retriever.host = host;

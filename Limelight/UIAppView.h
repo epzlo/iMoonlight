@@ -24,5 +24,11 @@
 
 - (id) initWithApp:(TemporaryApp*)app cache:(NSCache*)cache andCallback:(id<AppCallback>)callback;
 - (void) updateAppImage;
+#if !TARGET_OS_TV
+/// Lpz Remote: wide card (16:9 picture of the PC's screen + name bar) or, for power
+/// actions, a compact button. Replaces the portrait box-art layout.
+- (void) lpzLayoutWithSize:(CGSize)size power:(BOOL)power;
++ (BOOL) lpzIsPowerApp:(TemporaryApp*)app;
+#endif
 
 @end
