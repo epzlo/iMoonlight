@@ -11,6 +11,7 @@
 #import "PadSettings.h"
 #import "PadHaptics.h"
 #import <Speech/Speech.h>
+#import "PadAutocorrect.h"
 #import <AVFoundation/AVFoundation.h>
 
 static const CGFloat BAR_HEIGHT = 40;
@@ -750,6 +751,78 @@ static const CGFloat STRIP_W = 62;
 
 #pragma mark - Ditado
 
+/// Acabamento do ditado: comandos falados viram pontuação ("vírgula" → ","), acentos que o
+/// reconhecimento esqueceu voltam (só troca de acento, nunca outra palavra) e as frases começam
+/// com maiúscula e terminam com ponto.
+static NSString* lpzFold(NSString* w) {
+    return [w stringByFoldingWithOptions:NSDiacriticInsensitiveSearch | NSCaseInsensitiveSearch locale:nil];
+}
+
+static NSString* lpzPolishDictation(NSString* raw) {
+    NSMutableString* t = [raw mutableCopy];
+    // Mais longos primeiro, para "ponto e vírgula" não virar "ponto e ,".
+    NSArray* commands = @[
+        @[@"novo parágrafo", @"\n\n"], @[@"nova linha", @"\n"], @[@"próxima linha", @"\n"],
+        @[@"ponto de interrogação", @"?"], @[@"ponto de exclamação", @"!"], @[@"ponto e vírgula", @";"],
+        @[@"ponto final", @"."], @[@"dois pontos", @":"], @[@"reticências", @"..."], @[@"vírgula", @","],
+        @[@"abre parênteses", @"("], @[@"fecha parênteses", @")"],
+    ];
+    for (NSArray* c in commands) {
+        NSString* pattern = [NSString stringWithFormat:@"(?i)\\s*\\b%@\\b", [NSRegularExpression escapedPatternForString:c[0]]];
+        NSString* with = [c[1] isEqualToString:@"("] ? @" (" : c[1];
+        [[NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil]
+            replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length)
+                      withTemplate:[NSRegularExpression escapedTemplateForString:with]];
+    }
+    // Espaço certo em volta da pontuação.
+    [[NSRegularExpression regularExpressionWithPattern:@" +([,.;:!?)])" options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"$1"];
+    [[NSRegularExpression regularExpressionWithPattern:@"([,;:!?])(?=[^\\s\\d])" options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"$1 "];
+    [[NSRegularExpression regularExpressionWithPattern:@"\\( +" options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"("];
+    [[NSRegularExpression regularExpressionWithPattern:@" *\n *" options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"\n"];
+
+    // Acentos: palavra a palavra, aceitando só a mesma palavra com outro acento.
+    PadAutocorrectPT* pt = [PadAutocorrectPT shared];
+    NSRegularExpression* words = [NSRegularExpression regularExpressionWithPattern:@"\\p{L}+" options:0 error:nil];
+    NSArray<NSTextCheckingResult*>* found = [words matchesInString:t options:0 range:NSMakeRange(0, t.length)];
+    for (NSTextCheckingResult* m in [found reverseObjectEnumerator]) {
+        NSString* w = [t substringWithRange:m.range];
+        NSString* fixed = w.length > 1 ? [pt correct:w.lowercaseString previous:nil] : nil;
+        if (fixed != nil && ![fixed isEqualToString:w.lowercaseString] && [lpzFold(fixed) isEqualToString:lpzFold(w)]) {
+            BOOL upper = [[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[w characterAtIndex:0]];
+            if (upper) fixed = [[[fixed substringToIndex:1] uppercaseString] stringByAppendingString:[fixed substringFromIndex:1]];
+            [t replaceCharactersInRange:m.range withString:fixed];
+        }
+    }
+
+    // Maiúscula no começo do texto e depois de . ! ? ou quebra de linha.
+    BOOL capital = YES;
+    for (NSUInteger i = 0; i < t.length; i++) {
+        unichar c = [t characterAtIndex:i];
+        if ([[NSCharacterSet letterCharacterSet] characterIsMember:c]) {
+            if (capital) {
+                NSString* up = [[t substringWithRange:NSMakeRange(i, 1)] uppercaseString];
+                [t replaceCharactersInRange:NSMakeRange(i, 1) withString:up];
+            }
+            capital = NO;
+        } else if (c == '.' || c == '!' || c == '?' || c == '\n') {
+            capital = YES;
+        } else if ([[NSCharacterSet decimalDigitCharacterSet] characterIsMember:c]) {
+            capital = NO;
+        }
+    }
+    NSString* out = [t stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    // Frase completa sem pontuação no fim ganha ponto.
+    if (out.length > 0 && [out componentsSeparatedByString:@" "].count >= 3) {
+        unichar last = [out characterAtIndex:out.length - 1];
+        if ([[NSCharacterSet alphanumericCharacterSet] characterIsMember:last]) out = [out stringByAppendingString:@"."];
+    }
+    return out;
+}
+
 @interface PadDictationViewController () <UITextViewDelegate>
 @end
 
@@ -779,6 +852,7 @@ static const CGFloat STRIP_W = 62;
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+    [PadAutocorrectPT shared]; // carrega o dicionário enquanto a pessoa fala
 
     _card = [[UIView alloc] init];
     _card.backgroundColor = pantera(0x16110f, 0.98);
@@ -810,7 +884,7 @@ static const CGFloat STRIP_W = 62;
     [_card addSubview:_text];
 
     _placeholder = [[UILabel alloc] init];
-    _placeholder.text = @"Fale em português. Dá para corrigir o texto antes de enviar.";
+    _placeholder.text = @"Fale em português. Diga \"vírgula\", \"ponto final\", \"ponto de interrogação\" ou \"nova linha\" para pontuar. Dá para corrigir antes de enviar.";
     _placeholder.numberOfLines = 0;
     _placeholder.font = [UIFont systemFontOfSize:15];
     _placeholder.textColor = pantera(0x9a8c82, 1);
@@ -837,13 +911,13 @@ static const CGFloat STRIP_W = 62;
     CGRect b = self.view.bounds;
     UIEdgeInsets safe = self.view.safeAreaInsets;
     CGFloat w = MIN(520, b.size.width - 24 - safe.left - safe.right);
-    CGFloat pad = 16, textH = b.size.height > b.size.width ? 150 : 96;
+    CGFloat pad = 16, textH = b.size.height > b.size.width ? 160 : 100;
     CGFloat h = pad + 20 + 10 + textH + 12 + 50 + pad;
     _card.frame = CGRectMake(round((b.size.width - w) / 2), b.size.height - h - MAX(safe.bottom, 12), w, h);
     _dot.frame = CGRectMake(pad, pad + 5, 10, 10);
     _status.frame = CGRectMake(pad + 18, pad, w - 2 * pad - 18, 20);
     _text.frame = CGRectMake(pad, pad + 30, w - 2 * pad, textH);
-    _placeholder.frame = CGRectMake(15, 12, _text.bounds.size.width - 30, 40);
+    _placeholder.frame = CGRectMake(15, 12, _text.bounds.size.width - 30, 60);
     CGFloat gap = 8, bw = (w - 2 * pad - 2 * gap) / 3, y = CGRectGetMaxY(_text.frame) + 12;
     for (int i = 0; i < 3; i++) {
         [_card viewWithTag:200 + i].frame = CGRectMake(pad + i * (bw + gap), y, bw, 50);
@@ -898,6 +972,9 @@ static const CGFloat STRIP_W = 62;
     _request = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
     _request.shouldReportPartialResults = YES;
     _request.taskHint = SFSpeechRecognitionTaskHintDictation;
+    // O reconhecimento no servidor da Apple acerta mais acentos e pontuação que o do aparelho.
+    _request.requiresOnDeviceRecognition = NO;
+    _request.contextualStrings = @[@"vírgula", @"ponto final", @"ponto de interrogação", @"nova linha", @"KDE", @"Konsole", @"Steam"];
     if (@available(iOS 16.0, *)) _request.addsPunctuation = YES;
 
     _engine = [[AVAudioEngine alloc] init];
@@ -939,6 +1016,7 @@ static const CGFloat STRIP_W = 62;
                 me->_placeholder.hidden = me->_text.text.length > 0;
             }
             if (err != nil || result.isFinal) {
+                if (!me->_edited && me->_text.text.length > 0) me->_text.text = lpzPolishDictation(me->_text.text);
                 [me stopListening];
                 me->_status.text = me->_text.text.length > 0 ? @"Pronto. Corrija se quiser e envie." : @"Não ouvi nada. Toque em Cancelar ou fale de novo abrindo a Voz.";
             }
@@ -989,9 +1067,12 @@ static const CGFloat STRIP_W = 62;
 }
 
 - (void)finish:(BOOL)send enter:(BOOL)enter {
+    BOOL wasListening = _listening;
     [self stopListening];
     [_text resignFirstResponder];
-    NSString* text = [_text.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    // Enviado no meio da fala: o acabamento ainda não foi feito.
+    NSString* text = (wasListening && !_edited) ? lpzPolishDictation(_text.text) : _text.text;
+    text = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     void (^onSend)(NSString*, BOOL) = self.onSend;
     [self dismissViewControllerAnimated:YES completion:^{
         if (send && onSend != nil && (text.length > 0 || enter)) onSend(text, enter);

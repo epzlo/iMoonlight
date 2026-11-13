@@ -78,8 +78,6 @@
     CGFloat _pinchStartZoom;
     CGPoint _pinchLastCenter;
     UIButton *_zoomBadge;
-    // Lpz Remote: anel que aparece na imagem onde o cursor está, some sozinho.
-    UIView *_cursorRing;
     // Reconexão automática: quando esta conexão começou (0 = ainda não).
     NSTimeInterval _connectedAt;
     // Retrato: divisor arrastável entre a imagem e o touchpad.
@@ -278,21 +276,6 @@
     [_zoomBadge addTarget:self action:@selector(resetZoomTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:_zoomBadge];
 
-    _cursorRing = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 28, 28)];
-    _cursorRing.userInteractionEnabled = NO;
-    _cursorRing.layer.cornerRadius = 14;
-    _cursorRing.layer.borderWidth = 2;
-    _cursorRing.layer.borderColor = [UIColor colorWithRed:0xc8 / 255.0 green:0xa1 / 255.0 blue:0x5a / 255.0 alpha:0.95].CGColor;
-    _cursorRing.layer.shadowColor = [UIColor blackColor].CGColor;
-    _cursorRing.layer.shadowOpacity = 0.6;
-    _cursorRing.layer.shadowRadius = 3;
-    _cursorRing.layer.shadowOffset = CGSizeZero;
-    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(11, 11, 6, 6)];
-    dot.backgroundColor = [UIColor colorWithRed:0xd9 / 255.0 green:0x43 / 255.0 blue:0x4a / 255.0 alpha:1];
-    dot.layer.cornerRadius = 3;
-    [_cursorRing addSubview:dot];
-    _cursorRing.alpha = 0;
-    [self.view addSubview:_cursorRing];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(cursorMoved:)
                                                  name:PadCursorMovedNotification
@@ -462,43 +445,34 @@ static const CGFloat DIVIDER_H = 22;
     [_tipLabel sizeToFit];
     _tipLabel.center = CGPointMake(center.x, CGRectGetMinY(streamFrame) + streamFrame.size.height * 0.9);
     
-    [self.view bringSubviewToFront:_cursorRing];
     [self.view bringSubviewToFront:_divider];
     [self.view bringSubviewToFront:_padPanel];
     [self.view bringSubviewToFront:_landscape];
     [self.view bringSubviewToFront:_zoomBadge];
 }
 
-#pragma mark - Marcador do cursor
+#pragma mark - Zoom segue o cursor
 
-/// Mostra o anel onde o cursor está na imagem e o apaga depois de um instante parado.
+/// Com zoom de pinça, a parte mostrada da imagem anda junto quando o cursor chega perto da borda.
 - (void)cursorMoved:(NSNotification *)notification {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ [self cursorMoved:notification]; });
         return;
     }
     PadOutput *out = [PadOutput shared];
-    if (![PadSettings cursorMarker] || _videoOff || _videoHost.hidden || !out.tracksCursor) {
-        _cursorRing.alpha = 0;
-        return;
-    }
+    if (!out.tracksCursor || _videoOff || _videoHost.hidden || _scrollView != nil) return;
+    // Só o zoom que o usuário fez (a imagem que preenche a altura em pé não conta).
+    BOOL zoomed = _zoom > [self fillZoom] + 0.01 || (_zoom > 1.01 && !_portraitLayout);
+    if (!zoomed) return;
     CGPoint inStream = [_streamView viewPointForStreamPixel:out.cursorPosition streamSize:out.streamSize];
-    CGPoint p = [_streamView convertPoint:inStream toView:self.view];
-    if (!CGRectContainsPoint(_videoHost.frame, p)) {
-        _cursorRing.alpha = 0;
-        return;
-    }
-    [_cursorRing.layer removeAllAnimations];
-    _cursorRing.center = p;
-    _cursorRing.alpha = 1;
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(fadeCursorRing) object:nil];
-    [self performSelector:@selector(fadeCursorRing) withObject:nil afterDelay:1.2];
-}
-
-- (void)fadeCursorRing {
-    [UIView animateWithDuration:0.35 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-        self->_cursorRing.alpha = 0;
-    } completion:nil];
+    CGPoint p = [_streamView convertPoint:inStream toView:_videoHost];
+    CGRect frame = _videoHost.bounds;
+    CGFloat mx = MAX(28, frame.size.width * 0.12), my = MAX(28, frame.size.height * 0.12);
+    CGRect keep = CGRectInset(frame, mx, my);
+    CGFloat dx = p.x < CGRectGetMinX(keep) ? CGRectGetMinX(keep) - p.x : p.x > CGRectGetMaxX(keep) ? CGRectGetMaxX(keep) - p.x : 0;
+    CGFloat dy = p.y < CGRectGetMinY(keep) ? CGRectGetMinY(keep) - p.y : p.y > CGRectGetMaxY(keep) ? CGRectGetMaxY(keep) - p.y : 0;
+    if (dx == 0 && dy == 0) return;
+    [self setZoom:_zoom offset:CGPointMake(_zoomOffset.x + dx, _zoomOffset.y + dy)];
 }
 
 #pragma mark - Zoom local da imagem

@@ -20,6 +20,8 @@ static const int REFERENCE_HEIGHT = 720;
 // Lpz Remote: a finger that starts moving within this distance (screen points) of the cursor
 // moves the cursor from where it is; farther away, the cursor jumps under the finger and follows it.
 static const CGFloat NEAR_CURSOR_DISTANCE = 70;
+// O cursor fica esta distância (pontos de tela) acima do dedo, para o dedo não cobrir a ponta da seta.
+static const CGFloat CURSOR_LIFT = 48;
 typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar };
 #endif
 
@@ -98,6 +100,13 @@ typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar 
 }
 
 #if !TARGET_OS_TV
+/// O ponto da imagem um pouco acima do dedo (a distância é fixa na tela, com ou sem zoom).
+- (CGPoint)liftedPoint:(CGPoint)point {
+    CGPoint onScreen = [view convertPoint:point toView:nil];
+    onScreen.y -= CURSOR_LIFT;
+    return [view convertPoint:onScreen fromView:nil];
+}
+
 // One-finger movement while the app tracks the cursor. Returns NO to fall back to relative motion.
 - (BOOL)hybridMoveTo:(CGPoint)currentLocation {
     PadOutput* out = [PadOutput shared];
@@ -114,14 +123,14 @@ typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar 
             // Compare on screen, so the local zoom of the image counts.
             CGPoint cursorInView = [sv viewPointForStreamPixel:out.cursorPosition streamSize:ss];
             CGPoint a = [view convertPoint:cursorInView toView:nil];
-            CGPoint b = [view convertPoint:originalLocation toView:nil];
+            CGPoint b = [view convertPoint:[self liftedPoint:originalLocation] toView:nil];
             hybridMode = hypot(a.x - b.x, a.y - b.y) <= NEAR_CURSOR_DISTANCE ? HybridNear : HybridFar;
         }
         hybridCursorStart = out.cursorPosition;
     }
     
     if (hybridMode == HybridFar) {
-        [out moveCursorTo:[sv streamPixelForViewPoint:currentLocation streamSize:ss]];
+        [out moveCursorTo:[sv streamPixelForViewPoint:[self liftedPoint:currentLocation] streamSize:ss]];
     } else {
         // Same distance the finger travelled over the image, from where the cursor was.
         CGPoint p0 = [sv streamPixelForViewPoint:originalLocation streamSize:ss];

@@ -65,8 +65,7 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionRemote, SectionHa
               [PadSettingRow toggle:@"Português do Brasil" detail:@"Linha de acentos (´ ~ ^ `), ç e autocorreção em português. Desligado: teclado e autocorreção em inglês" key:PadKeyPortuguese],
               [PadSettingRow toggle:@"PC com teclas mortas (EUA internacional)" detail:@"Acentos saem como ' + a, igual ao teclado do PC. Desligue se o layout do PC não tiver teclas mortas" key:PadKeyDeadKeys],
               [PadSettingRow toggle:@"Digitar ao soltar o dedo" detail:@"Dá para deslizar até a tecla certa antes de digitar" key:PadKeyTypeOnRelease]],
-            @[[PadSettingRow toggle:@"Marcador do cursor" detail:@"Um anel dourado mostra na imagem onde o cursor está e some sozinho" key:PadKeyCursorMarker],
-              [PadSettingRow toggle:@"Reconectar sozinho" detail:@"Se a conexão cair ou você sair do app, volta para a mesma tela ao reabrir" key:PadKeyAutoReconnect]],
+            @[[PadSettingRow toggle:@"Reconectar sozinho" detail:@"Se a conexão cair ou você sair do app, volta para a mesma tela ao reabrir" key:PadKeyAutoReconnect]],
             @[],
         ];
     }
