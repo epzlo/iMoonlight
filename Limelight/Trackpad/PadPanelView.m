@@ -928,7 +928,7 @@ static NSString* lpzPolishDictation(NSString* raw) {
     return out;
 }
 
-@interface PadDictationViewController () <UITextViewDelegate>
+@interface PadDictationViewController () <UITextViewDelegate, UIGestureRecognizerDelegate>
 @end
 
 @implementation PadDictationViewController {
@@ -946,6 +946,7 @@ static NSString* lpzPolishDictation(NSString* raw) {
     // Enviar no meio da fala espera o resultado final (com os tempos das palavras) por até 2,5 s.
     BOOL _sendWhenFinal, _sendEnter, _delivered;
     SFTranscription* _last;
+    CGFloat _keyboardTop; // topo do teclado na tela (0 = sem teclado)
 }
 
 - (instancetype)init {
@@ -1011,7 +1012,37 @@ static NSString* lpzPolishDictation(NSString* raw) {
         [b addTarget:self action:@selector(buttonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [_card addSubview:b];
     }
-    [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(backgroundTapped:)]];
+    // O toque fora do cartão fecha; dentro dele (texto e botões) segue normal, senão o toque no
+    // texto era engolido aqui e a caixa nunca entrava em edição.
+    UITapGestureRecognizer* tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(backgroundTapped:)];
+    tap.delegate = self;
+    [self.view addGestureRecognizer:tap];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:)
+                                                 name:UIKeyboardWillChangeFrameNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:)
+                                                 name:UIKeyboardWillHideNotification object:nil];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer*)g shouldReceiveTouch:(UITouch*)touch {
+    return ![touch.view isDescendantOfView:_card];
+}
+
+// O cartão sobe para cima do teclado (e a caixa de texto encolhe se precisar) ao corrigir o texto.
+- (void)keyboardWillChange:(NSNotification*)n {
+    CGRect end = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect inView = [self.view convertRect:end fromView:nil]; // a janela ocupa a tela toda
+    BOOL hiding = [n.name isEqualToString:UIKeyboardWillHideNotification] ||
+                  CGRectGetMinY(inView) >= CGRectGetMaxY(self.view.bounds) - 1;
+    _keyboardTop = hiding ? 0 : CGRectGetMinY(inView);
+    double duration = [n.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [self.view setNeedsLayout];
+    [UIView animateWithDuration:duration > 0 ? duration : 0.25 animations:^{
+        [self.view layoutIfNeeded];
+    }];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -1020,8 +1051,14 @@ static NSString* lpzPolishDictation(NSString* raw) {
     UIEdgeInsets safe = self.view.safeAreaInsets;
     CGFloat w = MIN(520, b.size.width - 24 - safe.left - safe.right);
     CGFloat pad = 16, textH = b.size.height > b.size.width ? 160 : 100;
+    CGFloat bottom = b.size.height - MAX(safe.bottom, 12);
+    if (_keyboardTop > 0) {
+        bottom = MIN(bottom, _keyboardTop - 8);
+        CGFloat room = bottom - (safe.top + 8) - (pad + 20 + 10 + 12 + 50 + pad);
+        textH = MAX(44, MIN(textH, room));
+    }
     CGFloat h = pad + 20 + 10 + textH + 12 + 50 + pad;
-    _card.frame = CGRectMake(round((b.size.width - w) / 2), b.size.height - h - MAX(safe.bottom, 12), w, h);
+    _card.frame = CGRectMake(round((b.size.width - w) / 2), MAX(safe.top + 8, bottom - h), w, h);
     _dot.frame = CGRectMake(pad, pad + 5, 10, 10);
     _status.frame = CGRectMake(pad + 18, pad, w - 2 * pad - 18, 20);
     _text.frame = CGRectMake(pad, pad + 30, w - 2 * pad, textH);
@@ -1106,7 +1143,7 @@ static NSString* lpzPolishDictation(NSString* raw) {
         return;
     }
     _listening = YES;
-    _status.text = @"Ouvindo…";
+    _status.text = @"Ouvindo… Toque no texto para corrigir.";
     CABasicAnimation* pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
     pulse.fromValue = @1;
     pulse.toValue = @0.25;
@@ -1135,7 +1172,7 @@ static NSString* lpzPolishDictation(NSString* raw) {
                     [me deliver:me->_text.text];
                     return;
                 }
-                me->_status.text = me->_text.text.length > 0 ? @"Pronto. Corrija se quiser e envie." : @"Não ouvi nada. Toque em Cancelar ou fale de novo abrindo a Voz.";
+                me->_status.text = me->_text.text.length > 0 ? @"Pronto. Toque no texto para corrigir e envie." : @"Não ouvi nada. Toque em Cancelar ou fale de novo abrindo a Voz.";
             }
         });
     }];

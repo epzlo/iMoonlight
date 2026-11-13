@@ -17,9 +17,10 @@ static const int REFERENCE_WIDTH = 1280;
 static const int REFERENCE_HEIGHT = 720;
 
 #if !TARGET_OS_TV
-// Lpz Remote: a finger that starts moving within this distance (screen points) of the cursor
-// moves the cursor from where it is; farther away, the cursor jumps under the finger and follows it.
-static const CGFloat NEAR_CURSOR_DISTANCE = 70;
+// Lpz Remote: a finger that starts moving within this distance (screen points) of the cursor,
+// on any side, moves the cursor from where it is, keeping the same offset to the finger; farther
+// away, the cursor jumps to just above the finger and follows it.
+static const CGFloat NEAR_CURSOR_DISTANCE = 80;
 // O cursor fica esta distância (pontos de tela) acima do dedo, para o dedo não cobrir a ponta da seta.
 static const CGFloat CURSOR_LIFT = 48;
 typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar };
@@ -129,8 +130,12 @@ typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar 
             // Compare on screen, so the local zoom of the image counts.
             CGPoint cursorInView = [sv viewPointForStreamPixel:out.cursorPosition streamSize:ss];
             CGPoint a = [view convertPoint:cursorInView toView:nil];
+            // Perto conta pelo dedo e pelo ponto acima dele: com o dedo ao lado ou abaixo do
+            // cursor, ele anda de onde está em vez de pular para cima do dedo.
+            CGPoint f = [view convertPoint:originalLocation toView:nil];
             CGPoint b = [view convertPoint:[self liftedPoint:originalLocation] toView:nil];
-            hybridMode = hypot(a.x - b.x, a.y - b.y) <= NEAR_CURSOR_DISTANCE ? HybridNear : HybridFar;
+            CGFloat d = MIN(hypot(a.x - f.x, a.y - f.y), hypot(a.x - b.x, a.y - b.y));
+            hybridMode = d <= NEAR_CURSOR_DISTANCE ? HybridNear : HybridFar;
         }
         hybridCursorStart = out.cursorPosition;
     }
