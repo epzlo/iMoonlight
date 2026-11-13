@@ -20,6 +20,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)padPanelWantsSettings:(PadPanelView*)panel;
 - (void)padPanelWantsDisconnect:(PadPanelView*)panel;
 - (void)padPanelWantsVideoToggled:(PadPanelView*)panel;
+/// Ditado em português: o que for falado é digitado no PC.
+- (void)padPanelWantsDictation:(PadPanelView*)panel;
 @end
 
 @interface PadPanelView : UIView
@@ -44,6 +46,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)landscapeWantsSettings:(PadLandscapeView*)view;
 - (void)landscapeWantsDisconnect:(PadLandscapeView*)view;
 - (void)landscapeWantsVideoToggled:(PadLandscapeView*)view;
+- (void)landscapeWantsDictation:(PadLandscapeView*)view;
+/// Reconectar já, para aplicar outra qualidade de imagem.
+- (void)landscapeWantsReconnect:(PadLandscapeView*)view;
 /// Zoom local da imagem (1 = tela inteira, sem zoom).
 - (void)landscape:(PadLandscapeView*)view wantsZoom:(CGFloat)zoom;
 @end
@@ -62,6 +67,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Fecha o painel aberto e solta qualquer tecla presa.
 - (void)resetInput;
 
+@end
+
+/// Ditado em português (Lpz Remote): mostra o que está sendo ouvido, deixa corrigir e envia.
+@interface PadDictationViewController : UIViewController
+/// Chamado com o texto final; withEnter = também apertar Enter depois.
+@property (nonatomic, copy, nullable) void (^onSend)(NSString* text, BOOL withEnter);
 @end
 
 NS_ASSUME_NONNULL_END

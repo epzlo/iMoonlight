@@ -24,6 +24,17 @@ extern NSString* const PadKeyShowHints;
 extern NSString* const PadKeyPortuguese;
 extern NSString* const PadKeyDeadKeys;
 extern NSString* const PadKeyVideoShare;
+extern NSString* const PadKeyShortcuts;
+extern NSString* const PadKeyCursorMarker;
+extern NSString* const PadKeyNetworkProfile;
+extern NSString* const PadKeyAutoReconnect;
+
+/// Perfil de rede (Lpz Remote).
+typedef NS_ENUM(NSInteger, PadNetworkProfile) {
+    PadNetworkAuto = 0,     // Wi-Fi = alta, dados móveis = econômica
+    PadNetworkHigh = 1,     // sempre a qualidade dos ajustes
+    PadNetworkSaver = 2,    // sempre econômica (720p, 6 Mbps)
+};
 
 /// Posted when any trackpad setting changes.
 extern NSString* const PadSettingsChangedNotification;
@@ -60,6 +71,21 @@ extern NSString* const PadSettingsChangedNotification;
 + (BOOL)deadKeys;
 /// Retrato: fração da altura útil que o vídeo ocupa (0 = automático, pela proporção da tela do PC).
 + (float)videoShare;
+/// Atalhos personalizados, um por linha: "Rótulo = Ctrl+Alt+T".
++ (NSString*)shortcuts;
++ (void)setShortcuts:(NSString*)text;
+/// Mostra um anel na imagem onde o cursor está.
++ (BOOL)cursorMarker;
++ (PadNetworkProfile)networkProfile;
++ (void)setNetworkProfile:(PadNetworkProfile)profile;
+/// Começa a observar a rede (Wi-Fi ou dados móveis). Chamar cedo, no início do app.
++ (void)startNetworkWatch;
+/// YES quando o iPhone está só nos dados móveis.
++ (BOOL)onCellular;
+/// YES quando a próxima conexão deve usar a qualidade econômica (720p, 6 Mbps).
++ (BOOL)useSaverQuality;
+/// Reconecta sozinho se a conexão cair ou ao voltar para o app.
++ (BOOL)autoReconnect;
 
 + (float)floatForKey:(NSString*)key;
 + (void)setFloat:(float)value forKey:(NSString*)key;

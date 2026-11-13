@@ -10,6 +10,8 @@
 #import "PadOutput.h"
 #import "PadSettings.h"
 #import "PadHaptics.h"
+#import <Speech/Speech.h>
+#import <AVFoundation/AVFoundation.h>
 
 static const CGFloat BAR_HEIGHT = 40;
 static const CGFloat BAR_PAD = 6;
@@ -56,6 +58,7 @@ static const NSTimeInterval BAR_SHOWN_FOR = 4;
         _bar.spacing = 6;
         [_bar addArrangedSubview:[self barButton:@"Teclado" symbol:@"keyboard" action:@selector(keyboardTapped)]];
         [_bar addArrangedSubview:[self barButton:@"Teclas" symbol:@"command" action:@selector(pcKeysTapped)]];
+        [_bar addArrangedSubview:[self barButton:@"Voz" symbol:@"mic" action:@selector(voiceTapped)]];
         _videoButton = [self barButton:@"" symbol:@"video.slash" action:@selector(videoTapped)];
         [_bar addArrangedSubview:_videoButton];
         [self updateVideoButton];
@@ -275,6 +278,13 @@ static const NSTimeInterval BAR_SHOWN_FOR = 4;
     [self.delegate padPanelWantsSettings:self];
 }
 
+- (void)voiceTapped {
+    [self hideBar];
+    [PadHaptics play:PadHapticBar];
+    [self resetInput];
+    [self.delegate padPanelWantsDictation:self];
+}
+
 - (void)disconnectTapped {
     [self hideBar];
     [PadHaptics play:PadHapticBar];
@@ -389,8 +399,8 @@ static UIColor* pantera(int hex, CGFloat alpha) {
 
 typedef NS_ENUM(NSInteger, PadStripItem) {
     PadStripNone = -1,
-    PadStripKeyboard, PadStripPcKeys, PadStripTrackpad, PadStripZoom, PadStripMonitor,
-    PadStripVideo, PadStripSettings, PadStripLeave,
+    PadStripKeyboard, PadStripPcKeys, PadStripVoice, PadStripTrackpad, PadStripZoom, PadStripMonitor,
+    PadStripNetwork, PadStripVideo, PadStripSettings, PadStripLeave,
 };
 
 static const CGFloat STRIP_W = 62;
@@ -408,6 +418,8 @@ static const CGFloat STRIP_W = 62;
     UIView* _zoomCard;
     UILabel* _zoomLabel;
     UIView* _monitorCard;
+    UIView* _networkCard;
+    UILabel* _networkLabel;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -421,8 +433,9 @@ static const CGFloat STRIP_W = 62;
         _strip = [[UIView alloc] init];
         _strip.backgroundColor = pantera(0x0b0908, 0.94);
         [self addSubview:_strip];
-        NSArray* spec = @[@[@"Teclado", @"keyboard"], @[@"Teclas", @"command"], @[@"Touchpad", @"hand.point.up.left"],
-                          @[@"Zoom", @"plus.magnifyingglass"], @[@"Monitor", @"display.2"], @[@"Vídeo", @"video.slash"],
+        NSArray* spec = @[@[@"Teclado", @"keyboard"], @[@"Teclas", @"command"], @[@"Voz", @"mic"],
+                          @[@"Touchpad", @"hand.point.up.left"], @[@"Zoom", @"plus.magnifyingglass"],
+                          @[@"Monitor", @"display.2"], @[@"Rede", @"wifi"], @[@"Vídeo", @"video.slash"],
                           @[@"Ajustes", @"gearshape"], @[@"Sair", @"xmark"]];
         NSMutableArray* items = [NSMutableArray array];
         for (NSUInteger i = 0; i < spec.count; i++) {
@@ -494,6 +507,20 @@ static const CGFloat STRIP_W = 62;
         [_monitorCard addSubview:[self cardNote:@"No modo celular as janelas ficam no Principal; o Vertical aparece vazio."]];
         _monitorCard.hidden = YES;
         [self addSubview:_monitorCard];
+
+        _networkCard = [self card];
+        _networkLabel = [self cardTitle:@"Qualidade da imagem"];
+        [_networkCard addSubview:_networkLabel];
+        NSArray* nets = @[@[@"Automática", @"Wi-Fi alta, 4G leve"], @[@"Alta", @"dos ajustes"], @[@"Econômica", @"720p · 6 Mbps"],
+                          @[@"Aplicar", @"reconecta já"]];
+        for (NSUInteger i = 0; i < nets.count; i++) {
+            UIButton* b = [self cardButton:nets[i][0] sub:nets[i][1] action:@selector(networkTapped:)];
+            b.tag = i < 3 ? (NSInteger)i : 9;
+            [_networkCard addSubview:b];
+        }
+        [_networkCard addSubview:[self cardNote:@"A escolha vale a partir da próxima conexão. Aplicar reconecta agora, em cerca de 3 segundos."]];
+        _networkCard.hidden = YES;
+        [self addSubview:_networkCard];
 
         [self updateItems];
     }
@@ -586,6 +613,7 @@ static const CGFloat STRIP_W = 62;
 
     [self layoutCard:_zoomCard columns:4 width:MIN(360, area.size.width - 24)];
     [self layoutCard:_monitorCard columns:3 width:MIN(380, area.size.width - 24)];
+    [self layoutCard:_networkCard columns:4 width:MIN(420, area.size.width - 24)];
 }
 
 - (void)layoutCard:(UIView*)card columns:(NSInteger)columns width:(CGFloat)w {
@@ -622,6 +650,13 @@ static const CGFloat STRIP_W = 62;
     _pad.active = !_pad.hidden;
     _zoomCard.hidden = _open != PadStripZoom;
     _monitorCard.hidden = _open != PadStripMonitor;
+    _networkCard.hidden = _open != PadStripNetwork;
+    PadNetworkProfile profile = [PadSettings networkProfile];
+    _networkLabel.text = [NSString stringWithFormat:@"Qualidade da imagem · agora em %@", [PadSettings onCellular] ? @"dados móveis" : @"Wi-Fi"];
+    for (UIView* v in _networkCard.subviews) {
+        if (![v isKindOfClass:[UIButton class]]) continue;
+        v.backgroundColor = v.tag == profile ? pantera(0x7a1c21, 1) : v.tag == 9 ? pantera(0x4a161a, 1) : pantera(0x332925, 1);
+    }
     _zoomLabel.text = [NSString stringWithFormat:@"Zoom da imagem · %@×", [[self class] decimal:_zoom]];
     for (UIView* v in _zoomCard.subviews) {
         if (![v isKindOfClass:[UIButton class]]) continue;
@@ -640,6 +675,10 @@ static const CGFloat STRIP_W = 62;
     PadStripItem which = item.tag;
     switch (which) {
         case PadStripVideo: [self.delegate landscapeWantsVideoToggled:self]; return;
+        case PadStripVoice:
+            [self resetInput];
+            [self.delegate landscapeWantsDictation:self];
+            return;
         case PadStripSettings: [self.delegate landscapeWantsSettings:self]; return;
         case PadStripLeave: [self.delegate landscapeWantsDisconnect:self]; return;
         default: break;
@@ -654,6 +693,18 @@ static const CGFloat STRIP_W = 62;
 - (void)zoomTapped:(UIButton*)b {
     [PadHaptics play:PadHapticBar];
     [self.delegate landscape:self wantsZoom:b.tag / 10.0];
+}
+
+- (void)networkTapped:(UIButton*)b {
+    [PadHaptics play:PadHapticBar];
+    if (b.tag == 9) {
+        _open = PadStripNone;
+        [self updateItems];
+        [self.delegate landscapeWantsReconnect:self];
+        return;
+    }
+    [PadSettings setNetworkProfile:(PadNetworkProfile)b.tag];
+    [self updateItems];
 }
 
 - (void)monitorTapped:(UIButton*)b {
@@ -692,6 +743,263 @@ static const CGFloat STRIP_W = 62;
 
 - (void)pcKeysViewDidClose:(PadPcKeysView*)view {
     [self resetInput];
+}
+
+@end
+
+#pragma mark - Ditado
+
+@interface PadDictationViewController () <UITextViewDelegate>
+@end
+
+@implementation PadDictationViewController {
+    UIView* _card;
+    UILabel* _status;
+    UIView* _dot;
+    UITextView* _text;
+    UILabel* _placeholder;
+    SFSpeechRecognizer* _recognizer;
+    SFSpeechAudioBufferRecognitionRequest* _request;
+    SFSpeechRecognitionTask* _task;
+    AVAudioEngine* _engine;
+    BOOL _listening;
+    BOOL _edited;
+}
+
+- (instancetype)init {
+    self = [super initWithNibName:nil bundle:nil];
+    if (self) {
+        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+
+    _card = [[UIView alloc] init];
+    _card.backgroundColor = pantera(0x16110f, 0.98);
+    _card.layer.cornerRadius = 22;
+    _card.layer.borderWidth = 1;
+    _card.layer.borderColor = pantera(0xc8a15a, 0.35).CGColor;
+    [self.view addSubview:_card];
+
+    _dot = [[UIView alloc] init];
+    _dot.backgroundColor = pantera(0xd9434a, 1);
+    _dot.layer.cornerRadius = 5;
+    [_card addSubview:_dot];
+
+    _status = [[UILabel alloc] init];
+    _status.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    _status.textColor = pantera(0xc8a15a, 1);
+    _status.text = @"Preparando o microfone…";
+    [_card addSubview:_status];
+
+    _text = [[UITextView alloc] init];
+    _text.backgroundColor = pantera(0x0b0908, 1);
+    _text.textColor = pantera(0xefe7de, 1);
+    _text.font = [UIFont systemFontOfSize:19 weight:UIFontWeightMedium];
+    _text.layer.cornerRadius = 14;
+    _text.textContainerInset = UIEdgeInsetsMake(12, 10, 12, 10);
+    _text.keyboardAppearance = UIKeyboardAppearanceDark;
+    _text.tintColor = pantera(0xc8a15a, 1);
+    _text.delegate = self;
+    [_card addSubview:_text];
+
+    _placeholder = [[UILabel alloc] init];
+    _placeholder.text = @"Fale em português. Dá para corrigir o texto antes de enviar.";
+    _placeholder.numberOfLines = 0;
+    _placeholder.font = [UIFont systemFontOfSize:15];
+    _placeholder.textColor = pantera(0x9a8c82, 1);
+    _placeholder.userInteractionEnabled = NO;
+    [_text addSubview:_placeholder];
+
+    NSArray* titles = @[@"Cancelar", @"Enviar", @"Enviar ↵"];
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        UIButton* b = [UIButton buttonWithType:UIButtonTypeCustom];
+        b.tag = 200 + i;
+        [b setTitle:titles[i] forState:UIControlStateNormal];
+        b.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        b.layer.cornerRadius = 12;
+        b.backgroundColor = i == 0 ? pantera(0x332925, 1) : i == 1 ? pantera(0x7a1c21, 1) : pantera(0xa3242a, 1);
+        [b setTitleColor:pantera(0xefe7de, i == 0 ? 0.8 : 1) forState:UIControlStateNormal];
+        [b addTarget:self action:@selector(buttonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [_card addSubview:b];
+    }
+    [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(backgroundTapped:)]];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGRect b = self.view.bounds;
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat w = MIN(520, b.size.width - 24 - safe.left - safe.right);
+    CGFloat pad = 16, textH = b.size.height > b.size.width ? 150 : 96;
+    CGFloat h = pad + 20 + 10 + textH + 12 + 50 + pad;
+    _card.frame = CGRectMake(round((b.size.width - w) / 2), b.size.height - h - MAX(safe.bottom, 12), w, h);
+    _dot.frame = CGRectMake(pad, pad + 5, 10, 10);
+    _status.frame = CGRectMake(pad + 18, pad, w - 2 * pad - 18, 20);
+    _text.frame = CGRectMake(pad, pad + 30, w - 2 * pad, textH);
+    _placeholder.frame = CGRectMake(15, 12, _text.bounds.size.width - 30, 40);
+    CGFloat gap = 8, bw = (w - 2 * pad - 2 * gap) / 3, y = CGRectGetMaxY(_text.frame) + 12;
+    for (int i = 0; i < 3; i++) {
+        [_card viewWithTag:200 + i].frame = CGRectMake(pad + i * (bw + gap), y, bw, 50);
+    }
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (status != SFSpeechRecognizerAuthorizationStatusAuthorized) {
+                [self showProblem:@"Sem permissão de reconhecimento de fala. Libere em Ajustes do iPhone > Lpz Remote."];
+                return;
+            }
+            [[AVAudioSession sharedInstance] requestRecordPermission:^(BOOL granted) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (!granted) {
+                        [self showProblem:@"Sem permissão do microfone. Libere em Ajustes do iPhone > Lpz Remote."];
+                        return;
+                    }
+                    [self startListening];
+                });
+            }];
+        });
+    }];
+}
+
+- (void)showProblem:(NSString*)message {
+    _status.text = message;
+    _status.numberOfLines = 2;
+    _status.adjustsFontSizeToFitWidth = YES;
+    _status.minimumScaleFactor = 0.7;
+    _dot.backgroundColor = pantera(0x9a8c82, 1);
+    [_dot.layer removeAllAnimations];
+}
+
+- (void)startListening {
+    if (_listening || _edited || self.presentingViewController == nil) return;
+    _recognizer = [[SFSpeechRecognizer alloc] initWithLocale:[NSLocale localeWithLocaleIdentifier:@"pt-BR"]];
+    if (_recognizer == nil || !_recognizer.isAvailable) {
+        [self showProblem:@"O reconhecimento em português não está disponível agora (precisa de internet)."];
+        return;
+    }
+    NSError* error = nil;
+    AVAudioSession* session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayAndRecord
+             withOptions:AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDefaultToSpeaker |
+                         AVAudioSessionCategoryOptionAllowBluetooth
+                   error:&error];
+    [session setActive:YES error:&error];
+
+    _request = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
+    _request.shouldReportPartialResults = YES;
+    _request.taskHint = SFSpeechRecognitionTaskHintDictation;
+    if (@available(iOS 16.0, *)) _request.addsPunctuation = YES;
+
+    _engine = [[AVAudioEngine alloc] init];
+    AVAudioInputNode* input = _engine.inputNode;
+    AVAudioFormat* format = [input outputFormatForBus:0];
+    if (format.sampleRate <= 0) {
+        [self showProblem:@"O microfone não respondeu. Tente de novo."];
+        [self restoreAudio];
+        return;
+    }
+    SFSpeechAudioBufferRecognitionRequest* request = _request;
+    [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
+        [request appendAudioPCMBuffer:buffer];
+    }];
+    [_engine prepare];
+    if (![_engine startAndReturnError:&error]) {
+        [input removeTapOnBus:0];
+        [self showProblem:@"Não deu para ligar o microfone."];
+        [self restoreAudio];
+        return;
+    }
+    _listening = YES;
+    _status.text = @"Ouvindo…";
+    CABasicAnimation* pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
+    pulse.fromValue = @1;
+    pulse.toValue = @0.25;
+    pulse.duration = 0.7;
+    pulse.autoreverses = YES;
+    pulse.repeatCount = HUGE_VALF;
+    [_dot.layer addAnimation:pulse forKey:@"pulse"];
+
+    __weak typeof(self) weakSelf = self;
+    _task = [_recognizer recognitionTaskWithRequest:_request resultHandler:^(SFSpeechRecognitionResult* result, NSError* err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) me = weakSelf;
+            if (me == nil) return;
+            if (result != nil && !me->_edited) {
+                me->_text.text = result.bestTranscription.formattedString;
+                me->_placeholder.hidden = me->_text.text.length > 0;
+            }
+            if (err != nil || result.isFinal) {
+                [me stopListening];
+                me->_status.text = me->_text.text.length > 0 ? @"Pronto. Corrija se quiser e envie." : @"Não ouvi nada. Toque em Cancelar ou fale de novo abrindo a Voz.";
+            }
+        });
+    }];
+}
+
+- (void)stopListening {
+    if (!_listening) return;
+    _listening = NO;
+    [_engine stop];
+    [_engine.inputNode removeTapOnBus:0];
+    [_request endAudio];
+    [_task finish];
+    _task = nil;
+    _request = nil;
+    _engine = nil;
+    [_dot.layer removeAllAnimations];
+    _dot.backgroundColor = pantera(0xc8a15a, 1);
+    [self restoreAudio];
+}
+
+/// Volta o áudio ao jeito da transmissão (só tocar, sem abaixar outros sons).
+- (void)restoreAudio {
+    AVAudioSession* session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+    [session setActive:YES error:nil];
+}
+
+- (void)textViewDidBeginEditing:(UITextView*)textView {
+    // Corrigindo à mão: para de ouvir para não sobrescrever.
+    _edited = YES;
+    [self stopListening];
+    _status.text = @"Editando. Envie quando estiver certo.";
+}
+
+- (void)textViewDidChange:(UITextView*)textView {
+    _placeholder.hidden = textView.text.length > 0;
+}
+
+- (void)backgroundTapped:(UITapGestureRecognizer*)tap {
+    if (!CGRectContainsPoint(_card.frame, [tap locationInView:self.view])) [self finish:NO enter:NO];
+}
+
+- (void)buttonTapped:(UIButton*)b {
+    [PadHaptics play:PadHapticBar];
+    [self finish:b.tag != 200 enter:b.tag == 202];
+}
+
+- (void)finish:(BOOL)send enter:(BOOL)enter {
+    [self stopListening];
+    [_text resignFirstResponder];
+    NSString* text = [_text.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    void (^onSend)(NSString*, BOOL) = self.onSend;
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (send && onSend != nil && (text.length > 0 || enter)) onSend(text, enter);
+    }];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self stopListening];
 }
 
 @end

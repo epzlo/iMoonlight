@@ -15,6 +15,8 @@ static const int64_t CLICK_HOLD_MS = 90;
 /// How long each typed key stays down.
 static const useconds_t KEY_HOLD_US = 25 * 1000;
 
+NSString* const PadCursorMovedNotification = @"PadCursorMovedNotification";
+
 @implementation PadOutput {
     float _moveRemainderX, _moveRemainderY;
     float _scrollRemainder;
@@ -60,6 +62,7 @@ static const useconds_t KEY_HOLD_US = 25 * 1000;
     _cursorPosition = CGPointMake(x, y);
     LiSendMousePositionEvent((short)lroundf(x), (short)lroundf(y),
                              (short)_streamSize.width, (short)_streamSize.height);
+    [[NSNotificationCenter defaultCenter] postNotificationName:PadCursorMovedNotification object:self];
 }
 
 - (void)moveByX:(float)dx y:(float)dy {
@@ -227,6 +230,40 @@ static BOOL sendWithDeadKey(NSString* one) {
     sendTranslated(deadEvent);
     sendTranslated(baseEvent);
     return YES;
+}
+
++ (NSArray<NSNumber*>*)codesForCombo:(NSString*)combo {
+    static NSDictionary<NSString*, NSNumber*>* names;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = @{@"ctrl": @(PadVkCtrl), @"control": @(PadVkCtrl), @"alt": @(PadVkAlt), @"shift": @(PadVkShift),
+                  @"super": @(PadVkWin), @"meta": @(PadVkWin), @"win": @(PadVkWin), @"windows": @(PadVkWin),
+                  @"enter": @(PadVkEnter), @"return": @(PadVkEnter), @"esc": @(PadVkEscape), @"escape": @(PadVkEscape),
+                  @"tab": @(PadVkTab), @"espaço": @(PadVkSpace), @"espaco": @(PadVkSpace), @"space": @(PadVkSpace),
+                  @"del": @(PadVkDelete), @"delete": @(PadVkDelete), @"backspace": @(PadVkBackspace), @"apagar": @(PadVkBackspace),
+                  @"home": @(PadVkHome), @"end": @(PadVkEnd), @"pgup": @(PadVkPageUp), @"pgdn": @(PadVkPageDown),
+                  @"pageup": @(PadVkPageUp), @"pagedown": @(PadVkPageDown), @"prtsc": @(PadVkPrintScreen), @"print": @(PadVkPrintScreen),
+                  @"esquerda": @(PadVkLeft), @"left": @(PadVkLeft), @"direita": @(PadVkRight), @"right": @(PadVkRight),
+                  @"cima": @(PadVkUp), @"up": @(PadVkUp), @"baixo": @(PadVkDown), @"down": @(PadVkDown),
+                  @"←": @(PadVkLeft), @"→": @(PadVkRight), @"↑": @(PadVkUp), @"↓": @(PadVkDown)};
+    });
+    NSMutableArray<NSNumber*>* codes = [NSMutableArray array];
+    for (NSString* raw in [combo componentsSeparatedByString:@"+"]) {
+        NSString* t = [[raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString];
+        if (t.length == 0) return nil;
+        NSNumber* n = names[t];
+        if (n == nil && t.length == 1) {
+            unichar c = [[t uppercaseString] characterAtIndex:0];
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) n = @(c);
+        }
+        if (n == nil && t.length >= 2 && [t hasPrefix:@"f"]) {
+            int f = [[t substringFromIndex:1] intValue];
+            if (f >= 1 && f <= 12) n = @(PadVkF1 + f - 1);
+        }
+        if (n == nil) return nil;
+        [codes addObject:n];
+    }
+    return codes.count ? codes : nil;
 }
 
 - (void)typeText:(NSString*)text {

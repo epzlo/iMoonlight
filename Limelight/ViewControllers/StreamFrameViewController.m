@@ -78,6 +78,10 @@
     CGFloat _pinchStartZoom;
     CGPoint _pinchLastCenter;
     UIButton *_zoomBadge;
+    // Lpz Remote: anel que aparece na imagem onde o cursor está, some sozinho.
+    UIView *_cursorRing;
+    // Reconexão automática: quando esta conexão começou (0 = ainda não).
+    NSTimeInterval _connectedAt;
     // Retrato: divisor arrastável entre a imagem e o touchpad.
     UIView *_divider;
     CGFloat _videoShare;
@@ -273,6 +277,26 @@
     _zoomBadge.hidden = YES;
     [_zoomBadge addTarget:self action:@selector(resetZoomTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:_zoomBadge];
+
+    _cursorRing = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 28, 28)];
+    _cursorRing.userInteractionEnabled = NO;
+    _cursorRing.layer.cornerRadius = 14;
+    _cursorRing.layer.borderWidth = 2;
+    _cursorRing.layer.borderColor = [UIColor colorWithRed:0xc8 / 255.0 green:0xa1 / 255.0 blue:0x5a / 255.0 alpha:0.95].CGColor;
+    _cursorRing.layer.shadowColor = [UIColor blackColor].CGColor;
+    _cursorRing.layer.shadowOpacity = 0.6;
+    _cursorRing.layer.shadowRadius = 3;
+    _cursorRing.layer.shadowOffset = CGSizeZero;
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(11, 11, 6, 6)];
+    dot.backgroundColor = [UIColor colorWithRed:0xd9 / 255.0 green:0x43 / 255.0 blue:0x4a / 255.0 alpha:1];
+    dot.layer.cornerRadius = 3;
+    [_cursorRing addSubview:dot];
+    _cursorRing.alpha = 0;
+    [self.view addSubview:_cursorRing];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(cursorMoved:)
+                                                 name:PadCursorMovedNotification
+                                               object:nil];
 #else
     [self.view addSubview:_scrollView != nil ? _scrollView : _streamView];
 #endif
@@ -438,10 +462,43 @@ static const CGFloat DIVIDER_H = 22;
     [_tipLabel sizeToFit];
     _tipLabel.center = CGPointMake(center.x, CGRectGetMinY(streamFrame) + streamFrame.size.height * 0.9);
     
+    [self.view bringSubviewToFront:_cursorRing];
     [self.view bringSubviewToFront:_divider];
     [self.view bringSubviewToFront:_padPanel];
     [self.view bringSubviewToFront:_landscape];
     [self.view bringSubviewToFront:_zoomBadge];
+}
+
+#pragma mark - Marcador do cursor
+
+/// Mostra o anel onde o cursor está na imagem e o apaga depois de um instante parado.
+- (void)cursorMoved:(NSNotification *)notification {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self cursorMoved:notification]; });
+        return;
+    }
+    PadOutput *out = [PadOutput shared];
+    if (![PadSettings cursorMarker] || _videoOff || _videoHost.hidden || !out.tracksCursor) {
+        _cursorRing.alpha = 0;
+        return;
+    }
+    CGPoint inStream = [_streamView viewPointForStreamPixel:out.cursorPosition streamSize:out.streamSize];
+    CGPoint p = [_streamView convertPoint:inStream toView:self.view];
+    if (!CGRectContainsPoint(_videoHost.frame, p)) {
+        _cursorRing.alpha = 0;
+        return;
+    }
+    [_cursorRing.layer removeAllAnimations];
+    _cursorRing.center = p;
+    _cursorRing.alpha = 1;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(fadeCursorRing) object:nil];
+    [self performSelector:@selector(fadeCursorRing) withObject:nil afterDelay:1.2];
+}
+
+- (void)fadeCursorRing {
+    [UIView animateWithDuration:0.35 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        self->_cursorRing.alpha = 0;
+    } completion:nil];
 }
 
 #pragma mark - Zoom local da imagem
@@ -574,6 +631,31 @@ static const CGFloat DIVIDER_H = 22;
 
 - (void)landscapeWantsVideoToggled:(PadLandscapeView *)view {
     [self padPanelWantsVideoToggled:_padPanel];
+}
+
+- (void)landscapeWantsDictation:(PadLandscapeView *)view {
+    [self padPanelWantsDictation:_padPanel];
+}
+
+- (void)landscapeWantsReconnect:(PadLandscapeView *)view {
+    // Reabre o mesmo app logo em seguida, já com a qualidade nova.
+    [_landscape resetInput];
+    if (_streamConfig.appID != nil) {
+        // Pedido explícito: vale mesmo com a reconexão automática desligada.
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        [d setObject:_streamConfig.appID forKey:@"lpz.resumeAppId"];
+        [d setDouble:[NSDate date].timeIntervalSince1970 + 60 forKey:@"lpz.resumeUntil"];
+    }
+    [self returnToMainFrame];
+}
+
+- (void)padPanelWantsDictation:(PadPanelView *)panel {
+    if (self.presentedViewController != nil) return;
+    PadDictationViewController *voice = [[PadDictationViewController alloc] init];
+    voice.onSend = ^(NSString *text, BOOL withEnter) {
+        [[PadOutput shared] typeText:withEnter ? [text stringByAppendingString:@"\n"] : text];
+    };
+    [self presentViewController:voice animated:YES completion:nil];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
@@ -765,8 +847,38 @@ static const CGFloat DIVIDER_H = 22;
         _inactivityTimer = nil;
     }
     
+#if !TARGET_OS_TV
+    // Volta sozinho para o mesmo app quando o Lpz Remote reabrir (em até 10 minutos).
+    [self markResumeFor:600];
+#endif
     [self returnToMainFrame];
 }
+
+#if !TARGET_OS_TV
+- (BOOL)markResumeFor:(NSTimeInterval)seconds {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    if (![PadSettings autoReconnect] || [d boolForKey:@"lpz.powerLaunch"] || _streamConfig.appID == nil) return NO;
+    [d setObject:_streamConfig.appID forKey:@"lpz.resumeAppId"];
+    [d setDouble:[NSDate date].timeIntervalSince1970 + seconds forKey:@"lpz.resumeUntil"];
+    return YES;
+}
+
+/// Queda de conexão: até 3 tentativas seguidas em 1 minuto. Conexão que durou mais de 30 s zera a conta.
+- (BOOL)retryAfterDrop {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    BOOL stable = _connectedAt > 0 && now - _connectedAt > 30;
+    if (stable || now - [d doubleForKey:@"lpz.retryFirstAt"] > 60) {
+        [d setDouble:now forKey:@"lpz.retryFirstAt"];
+        [d setInteger:0 forKey:@"lpz.retryCount"];
+    }
+    NSInteger tries = [d integerForKey:@"lpz.retryCount"];
+    if (tries >= 3) return NO;
+    if (![self markResumeFor:60]) return NO;
+    [d setInteger:tries + 1 forKey:@"lpz.retryCount"];
+    return YES;
+}
+#endif
 
 - (void)edgeSwiped {
     Log(LOG_I, @"User swiped to end stream");
@@ -781,6 +893,10 @@ static const CGFloat DIVIDER_H = 22;
 - (void) connectionStarted {
     Log(LOG_I, @"Connection started");
     dispatch_async(dispatch_get_main_queue(), ^{
+#if !TARGET_OS_TV
+        self->_connectedAt = [NSDate date].timeIntervalSince1970;
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"lpz.resumeAppId"];
+#endif
         // Leave the spinner spinning until it's obscured by
         // the first frame of video.
         self->_stageLabel.hidden = YES;
@@ -877,6 +993,16 @@ static const CGFloat DIVIDER_H = 22;
             }
         }
         
+#if !TARGET_OS_TV
+        // Lpz Remote: queda de rede reconecta sozinho (até 3 vezes por minuto); erro do PC mostra o aviso.
+        BOOL fatal = errorCode == ML_ERROR_FRAME_CONVERSION || errorCode == ML_ERROR_UNEXPECTED_EARLY_TERMINATION ||
+                     errorCode == ML_ERROR_PROTECTED_CONTENT;
+        if (!fatal && [self retryAfterDrop]) {
+            Log(LOG_I, @"Lpz: conexão caiu (%d), tentando de novo", errorCode);
+            [self returnToMainFrame];
+            return;
+        }
+#endif
         UIAlertController* conTermAlert = [UIAlertController alertControllerWithTitle:title
                                                                               message:message
                                                                        preferredStyle:UIAlertControllerStyleAlert];

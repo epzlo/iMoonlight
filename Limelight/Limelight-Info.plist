@@ -60,6 +60,10 @@
 	<array>
 		<string>_nvstream._tcp</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O microfone é usado só no ditado: o que você fala vira texto digitado no PC.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>O reconhecimento de fala transforma o ditado em texto para digitar no PC.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>O app usa a rede local para encontrar e transmitir o seu PC.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

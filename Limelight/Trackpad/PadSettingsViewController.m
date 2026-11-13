@@ -6,8 +6,9 @@
 #import "PadSettingsViewController.h"
 #import "PadSettings.h"
 #import "PadHaptics.h"
+#import "PadOutput.h"
 
-enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionCount };
+enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionRemote, SectionHaptics, SectionCount };
 
 /// A row: a slider or a switch bound to a setting.
 @interface PadSettingRow : NSObject
@@ -37,8 +38,12 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
 }
 @end
 
+@interface PadSettingsViewController () <UITextViewDelegate>
+@end
+
 @implementation PadSettingsViewController {
     NSArray<NSArray<PadSettingRow*>*>* _rows;
+    UILabel* _shortcutStatus;
 }
 
 - (instancetype)init {
@@ -60,6 +65,8 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
               [PadSettingRow toggle:@"Português do Brasil" detail:@"Linha de acentos (´ ~ ^ `), ç e autocorreção em português. Desligado: teclado e autocorreção em inglês" key:PadKeyPortuguese],
               [PadSettingRow toggle:@"PC com teclas mortas (EUA internacional)" detail:@"Acentos saem como ' + a, igual ao teclado do PC. Desligue se o layout do PC não tiver teclas mortas" key:PadKeyDeadKeys],
               [PadSettingRow toggle:@"Digitar ao soltar o dedo" detail:@"Dá para deslizar até a tecla certa antes de digitar" key:PadKeyTypeOnRelease]],
+            @[[PadSettingRow toggle:@"Marcador do cursor" detail:@"Um anel dourado mostra na imagem onde o cursor está e some sozinho" key:PadKeyCursorMarker],
+              [PadSettingRow toggle:@"Reconectar sozinho" detail:@"Se a conexão cair ou você sair do app, volta para a mesma tela ao reabrir" key:PadKeyAutoReconnect]],
             @[],
         ];
     }
@@ -76,6 +83,7 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
 }
 
 - (void)done {
+    [self.view endEditing:YES];
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
@@ -88,11 +96,15 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
         case SectionTrackpad: return @"Touchpad";
         case SectionLayout: return @"Tela";
         case SectionKeyboard: return @"Teclado";
+        case SectionRemote: return @"Lpz Remote";
         default: return @"Vibração";
     }
 }
 
 - (NSString*)tableView:(UITableView*)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == SectionRemote) {
+        return @"Atalhos: um por linha, no formato Rótulo = Ctrl+Alt+T. Teclas: Ctrl, Alt, Shift, Super, Enter, Esc, Tab, Espaço, Del, Home, End, PgUp, PgDn, PrtSc, setas, letras, números e F1 a F12. Aparecem em Teclas, depois de Colar.";
+    }
     if (section == SectionHaptics) {
         return @"Cada ação tem a sua vibração e intensidade. Toda mudança toca uma amostra.";
     }
@@ -100,6 +112,7 @@ enum { SectionTrackpad, SectionLayout, SectionKeyboard, SectionHaptics, SectionC
 }
 
 - (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == SectionRemote) return _rows[section].count + 2;
     return section == SectionHaptics ? PadHapticActionCount : _rows[section].count;
 }
 
@@ -130,6 +143,15 @@ static UILabel* label(NSString* text, UIFont* font, UIColor* color) {
 
     if (indexPath.section == SectionHaptics) {
         [self buildHapticRow:(PadHapticAction)indexPath.row inStack:stack];
+        return cell;
+    }
+
+    if (indexPath.section == SectionRemote && indexPath.row >= (NSInteger)_rows[SectionRemote].count) {
+        if (indexPath.row == (NSInteger)_rows[SectionRemote].count) {
+            [self buildNetworkRowInStack:stack];
+        } else {
+            [self buildShortcutsRowInStack:stack];
+        }
         return cell;
     }
 
@@ -178,6 +200,62 @@ static UILabel* label(NSString* text, UIFont* font, UIColor* color) {
         [stack addArrangedSubview:slider];
     }
     return cell;
+}
+
+- (void)buildNetworkRowInStack:(UIStackView*)stack {
+    [stack addArrangedSubview:label(@"Qualidade da imagem", [UIFont systemFontOfSize:17], [UIColor labelColor])];
+    [stack addArrangedSubview:label(@"Automática: Wi-Fi na qualidade dos ajustes, dados móveis em 720p e 6 Mbps. Vale na próxima conexão.",
+                                    [UIFont systemFontOfSize:13], [UIColor secondaryLabelColor])];
+    UISegmentedControl* seg = [[UISegmentedControl alloc] initWithItems:@[@"Automática", @"Alta", @"Econômica"]];
+    seg.selectedSegmentIndex = [PadSettings networkProfile];
+    [seg addAction:[UIAction actionWithHandler:^(UIAction* action) {
+        [PadSettings setNetworkProfile:(PadNetworkProfile)((UISegmentedControl*)action.sender).selectedSegmentIndex];
+    }] forControlEvents:UIControlEventValueChanged];
+    [stack addArrangedSubview:seg];
+}
+
+- (void)buildShortcutsRowInStack:(UIStackView*)stack {
+    [stack addArrangedSubview:label(@"Atalhos personalizados", [UIFont systemFontOfSize:17], [UIColor labelColor])];
+    UITextView* text = [[UITextView alloc] init];
+    text.text = [PadSettings shortcuts];
+    text.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
+    text.backgroundColor = [UIColor tertiarySystemFillColor];
+    text.layer.cornerRadius = 10;
+    text.textContainerInset = UIEdgeInsetsMake(10, 6, 10, 6);
+    text.autocorrectionType = UITextAutocorrectionTypeNo;
+    text.autocapitalizationType = UITextAutocapitalizationTypeSentences;
+    text.keyboardAppearance = UIKeyboardAppearanceDark;
+    text.delegate = self;
+    [text.heightAnchor constraintEqualToConstant:132].active = YES;
+    [stack addArrangedSubview:text];
+    _shortcutStatus = label(@"", [UIFont systemFontOfSize:13], [UIColor secondaryLabelColor]);
+    [stack addArrangedSubview:_shortcutStatus];
+    [self checkShortcuts:text.text];
+}
+
+/// Conta os atalhos válidos e aponta a primeira linha que não deu para entender.
+- (void)checkShortcuts:(NSString*)text {
+    NSInteger ok = 0;
+    NSString* bad = nil;
+    for (NSString* raw in [text componentsSeparatedByString:@"\n"]) {
+        NSString* line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (line.length == 0) continue;
+        NSRange eq = [line rangeOfString:@"="];
+        NSString* combo = eq.location == NSNotFound ? line : [line substringFromIndex:NSMaxRange(eq)];
+        if ([PadOutput codesForCombo:combo] != nil) ok++;
+        else if (bad == nil) bad = line;
+    }
+    _shortcutStatus.textColor = bad != nil ? [UIColor systemOrangeColor] : [UIColor secondaryLabelColor];
+    _shortcutStatus.text = bad != nil ? [NSString stringWithFormat:@"Não entendi: \"%@\"", bad]
+                                      : [NSString stringWithFormat:@"%ld atalho%@ pronto%@", (long)ok, ok == 1 ? @"" : @"s", ok == 1 ? @"" : @"s"];
+}
+
+- (void)textViewDidChange:(UITextView*)textView {
+    [self checkShortcuts:textView.text];
+}
+
+- (void)textViewDidEndEditing:(UITextView*)textView {
+    [PadSettings setShortcuts:textView.text];
 }
 
 - (void)buildHapticRow:(PadHapticAction)action inStack:(UIStackView*)stack {

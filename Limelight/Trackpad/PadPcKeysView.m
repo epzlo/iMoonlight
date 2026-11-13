@@ -8,9 +8,10 @@
 #import "PadPcKeysView.h"
 #import "PadOutput.h"
 #import "PadHaptics.h"
+#import "PadSettings.h"
 
 typedef NS_ENUM(NSInteger, PcKeyType) {
-    PcKeyNormal, PcKeyFn, PcKeyShortcut, PcKeyModifier, PcKeyEscape, PcKeyLetters, PcKeyClose
+    PcKeyNormal, PcKeyFn, PcKeyShortcut, PcKeyModifier, PcKeyEscape, PcKeyLetters, PcKeyClose, PcKeyPaste
 };
 
 static const NSTimeInterval REPEAT_DELAY = 0.400, REPEAT_EVERY = 0.055;
@@ -67,44 +68,80 @@ static PcKey* key(NSString* label, NSString* sub, PcKeyType type, CGFloat weight
         _letters = key(@"ABC", nil, PcKeyLetters, 0, NO, @[]);
         _close = key(@"✕ Fechar", nil, PcKeyClose, 0, NO, @[]);
 
-        NSMutableArray* r1 = [NSMutableArray arrayWithObject:key(@"Esc", nil, PcKeyEscape, 1, NO, @[@(PadVkEscape)])];
-        NSMutableArray* r2 = [NSMutableArray arrayWithObject:key(@"Tab", nil, PcKeyNormal, 1, NO, @[@(PadVkTab)])];
-        for (int i = 0; i < 12; i++) {
-            [(i < 6 ? r1 : r2) addObject:key([NSString stringWithFormat:@"F%d", i + 1], nil, PcKeyFn, 1, NO, @[@(PadVkF1 + i)])];
-        }
-        _rows = @[
-            r1,
-            r2,
-            // Atalhos do KDE Plasma (KWin) deste PC.
-            @[key(@"Alt+Tab", @"trocar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkTab)]),
-              key(@"Super+W", @"visão geral", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkW)]),
-              key(@"Super+D", @"área de trabalho", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkD)]),
-              key(@"Super", @"menu", PcKeyShortcut, 0.8, NO, @[@(PadVkWin)])],
-            @[key(@"Alt+F4", @"fechar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkF4)]),
-              key(@"Ctrl+Shift+Esc", @"monitor do sistema", PcKeyShortcut, 1.45, NO, @[@(PadVkCtrl), @(PadVkShift), @(PadVkEscape)]),
-              key(@"PrtSc", @"Spectacle", PcKeyShortcut, 1, NO, @[@(PadVkPrintScreen)]),
-              key(@"Super+V", @"área de transf.", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkV)])],
-            // O Sunshine troca o monitor transmitido com Ctrl+Alt+Shift+F1/F2 e mostra o cursor com +N.
-            @[key(@"Principal", @"monitor AOC", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF2)]),
-              key(@"Vertical", @"monitor Samsung", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF1)]),
-              key(@"Cursor", @"mostrar/ocultar", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkN)])],
-            @[key(@"Home", nil, PcKeyNormal, 1, NO, @[@(PadVkHome)]),
-              key(@"End", nil, PcKeyNormal, 1, NO, @[@(PadVkEnd)]),
-              key(@"PgUp", nil, PcKeyNormal, 1, YES, @[@(PadVkPageUp)]),
-              key(@"PgDn", nil, PcKeyNormal, 1, YES, @[@(PadVkPageDown)]),
-              key(@"Del", nil, PcKeyNormal, 1, YES, @[@(PadVkDelete)]),
-              key(@"↑", nil, PcKeyNormal, 1, YES, @[@(PadVkUp)]),
-              key(@"⌫", nil, PcKeyNormal, 1, YES, @[@(PadVkBackspace)])],
-            @[key(@"Ctrl", nil, PcKeyModifier, 1, NO, @[@(PadVkCtrl)]),
-              key(@"Alt", nil, PcKeyModifier, 1, NO, @[@(PadVkAlt)]),
-              key(@"Shift", nil, PcKeyModifier, 1, NO, @[@(PadVkShift)]),
-              key(@"Super", nil, PcKeyModifier, 1, NO, @[@(PadVkWin)]),
-              key(@"←", nil, PcKeyNormal, 1, YES, @[@(PadVkLeft)]),
-              key(@"↓", nil, PcKeyNormal, 1, YES, @[@(PadVkDown)]),
-              key(@"→", nil, PcKeyNormal, 1, YES, @[@(PadVkRight)])],
-        ];
+        [self buildRows];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsChanged) name:PadSettingsChangedNotification object:nil];
     }
     return self;
+}
+
+- (void)buildRows {
+    NSMutableArray* r1 = [NSMutableArray arrayWithObject:key(@"Esc", nil, PcKeyEscape, 1, NO, @[@(PadVkEscape)])];
+    NSMutableArray* r2 = [NSMutableArray arrayWithObject:key(@"Tab", nil, PcKeyNormal, 1, NO, @[@(PadVkTab)])];
+    for (int i = 0; i < 12; i++) {
+        [(i < 6 ? r1 : r2) addObject:key([NSString stringWithFormat:@"F%d", i + 1], nil, PcKeyFn, 1, NO, @[@(PadVkF1 + i)])];
+    }
+    NSMutableArray* rows = [@[
+        r1,
+        r2,
+        // Atalhos do KDE Plasma (KWin) deste PC.
+        @[key(@"Alt+Tab", @"trocar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkTab)]),
+          key(@"Super+W", @"visão geral", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkW)]),
+          key(@"Super+D", @"área de trabalho", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkD)]),
+          key(@"Super", @"menu", PcKeyShortcut, 0.8, NO, @[@(PadVkWin)])],
+        @[key(@"Alt+F4", @"fechar janela", PcKeyShortcut, 1, NO, @[@(PadVkAlt), @(PadVkF4)]),
+          key(@"Ctrl+Shift+Esc", @"monitor do sistema", PcKeyShortcut, 1.45, NO, @[@(PadVkCtrl), @(PadVkShift), @(PadVkEscape)]),
+          key(@"PrtSc", @"Spectacle", PcKeyShortcut, 1, NO, @[@(PadVkPrintScreen)]),
+          key(@"Super+V", @"área de transf.", PcKeyShortcut, 1, NO, @[@(PadVkWin), @(PadVkV)])],
+        // O Sunshine troca o monitor transmitido com Ctrl+Alt+Shift+F1/F2 e mostra o cursor com +N.
+        @[key(@"Principal", @"monitor AOC", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF2)]),
+          key(@"Vertical", @"monitor Samsung", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkF1)]),
+          key(@"Cursor", @"mostrar/ocultar", PcKeyShortcut, 1, NO, @[@(PadVkCtrl), @(PadVkAlt), @(PadVkShift), @(PadVkN)])],
+        @[key(@"Home", nil, PcKeyNormal, 1, NO, @[@(PadVkHome)]),
+          key(@"End", nil, PcKeyNormal, 1, NO, @[@(PadVkEnd)]),
+          key(@"PgUp", nil, PcKeyNormal, 1, YES, @[@(PadVkPageUp)]),
+          key(@"PgDn", nil, PcKeyNormal, 1, YES, @[@(PadVkPageDown)]),
+          key(@"Del", nil, PcKeyNormal, 1, YES, @[@(PadVkDelete)]),
+          key(@"↑", nil, PcKeyNormal, 1, YES, @[@(PadVkUp)]),
+          key(@"⌫", nil, PcKeyNormal, 1, YES, @[@(PadVkBackspace)])],
+        @[key(@"Ctrl", nil, PcKeyModifier, 1, NO, @[@(PadVkCtrl)]),
+          key(@"Alt", nil, PcKeyModifier, 1, NO, @[@(PadVkAlt)]),
+          key(@"Shift", nil, PcKeyModifier, 1, NO, @[@(PadVkShift)]),
+          key(@"Super", nil, PcKeyModifier, 1, NO, @[@(PadVkWin)]),
+          key(@"←", nil, PcKeyNormal, 1, YES, @[@(PadVkLeft)]),
+          key(@"↓", nil, PcKeyNormal, 1, YES, @[@(PadVkDown)]),
+          key(@"→", nil, PcKeyNormal, 1, YES, @[@(PadVkRight)])],
+    ] mutableCopy];
+    // Lpz Remote: mídia e volume
+    [rows insertObject:@[key(@"⏮", nil, PcKeyNormal, 1, NO, @[@(PadVkMediaPrev)]),
+                         key(@"⏯", nil, PcKeyNormal, 1, NO, @[@(PadVkMediaPlayPause)]),
+                         key(@"⏭", nil, PcKeyNormal, 1, NO, @[@(PadVkMediaNext)]),
+                         key(@"🔇", nil, PcKeyNormal, 1, NO, @[@(PadVkVolumeMute)]),
+                         key(@"🔉", nil, PcKeyNormal, 1, YES, @[@(PadVkVolumeDown)]),
+                         key(@"🔊", nil, PcKeyNormal, 1, YES, @[@(PadVkVolumeUp)])] atIndex:2];
+    // Colar do iPhone + atalhos personalizados (Ajustes > Atalhos personalizados)
+    NSMutableArray* custom = [NSMutableArray arrayWithObject:key(@"Colar", @"do iPhone", PcKeyPaste, 1, NO, @[])];
+    NSUInteger customRows = 0;
+    for (NSString* line in [[PadSettings shortcuts] componentsSeparatedByString:@"\n"]) {
+        NSRange eq = [line rangeOfString:@"="];
+        if (eq.location == NSNotFound) continue;
+        NSString* label = [[line substringToIndex:eq.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSString* combo = [[line substringFromIndex:eq.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSArray* codes = [PadOutput codesForCombo:combo];
+        if (label.length == 0 || codes == nil) continue;
+        if (custom.count == 4) {
+            if (customRows == 1) break;   // no máximo duas linhas de atalhos
+            [rows insertObject:custom atIndex:3 + customRows++];
+            custom = [NSMutableArray array];
+        }
+        [custom addObject:key(label, combo, PcKeyShortcut, 1, NO, codes)];
+    }
+    if (custom.count) [rows insertObject:custom atIndex:3 + customRows];
+    _rows = rows;
+}
+
+- (void)settingsChanged {
+    [self buildRows];
+    [self setNeedsLayout];
 }
 
 - (void)dealloc {
@@ -349,6 +386,12 @@ static CGSize drawCenteredAt(NSString* text, CGPoint center, UIFont* font, UICol
 }
 
 - (void)fire:(PcKey*)k {
+    if (k.type == PcKeyPaste) {
+        NSString* text = UIPasteboard.generalPasteboard.string;
+        if (text.length) [[PadOutput shared] typeText:text];
+        else [PadHaptics play:PadHapticKey];
+        return;
+    }
     if (k.type == PcKeyModifier) {
         // Tap to hold for the next key; tap again to let go.
         if ([_held containsObject:k]) [_held removeObject:k];

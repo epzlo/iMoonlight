@@ -29,6 +29,7 @@
 
 #if !TARGET_OS_TV
 #import "SettingsViewController.h"
+#import "PadSettings.h"
 #else
 #import <sys/utsname.h>
 #endif
@@ -650,6 +651,18 @@ static NSMutableSet* hostList;
 #endif
     
     _streamConfig.bitRate = [streamSettings.bitrate intValue];
+#if !TARGET_OS_TV
+    // Lpz Remote: nos dados móveis (ou no modo Econômica) a imagem cai para 720p e 6 Mbps.
+    if ([PadSettings useSaverQuality]) {
+        if (_streamConfig.height > 720) {
+            _streamConfig.width = (int)lround(_streamConfig.width * 720.0 / _streamConfig.height) & ~1;
+            _streamConfig.height = 720;
+        }
+        _streamConfig.frameRate = MIN(_streamConfig.frameRate, 60);
+        _streamConfig.bitRate = MIN(_streamConfig.bitRate, 6000);
+        Log(LOG_I, @"Lpz: qualidade econômica %dx%d %d kbps", _streamConfig.width, _streamConfig.height, _streamConfig.bitRate);
+    }
+#endif
     _streamConfig.optimizeGameSettings = streamSettings.optimizeGames;
     _streamConfig.playAudioOnPC = streamSettings.playAudioOnPC;
     _streamConfig.useFramePacing = streamSettings.useFramePacing;
@@ -1012,6 +1025,7 @@ static NSMutableSet* hostList;
     _boxArtCache = [[NSCache alloc] init];
 #if !TARGET_OS_TV
     [self lpzStyleHome];
+    [PadSettings startNetworkWatch];
 #endif
         
     hostScrollView = [[ComputerScrollView alloc] init];
@@ -1395,7 +1409,42 @@ static NSMutableSet* hostList;
     
     [hostScrollView removeFromSuperview];
     [self.collectionView reloadData];
+#if !TARGET_OS_TV
+    [self lpzResumeIfPending];
+#endif
 }
+
+#if !TARGET_OS_TV
+/// Reconexão automática: a tela de transmissão deixa marcado qual app voltar a abrir
+/// (ao ir para o fundo ou quando a conexão cai). Assim que a lista do PC chega, abre de novo.
+- (void)lpzResumeIfPending {
+    NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
+    NSString* appId = [d stringForKey:@"lpz.resumeAppId"];
+    if (appId == nil) return;
+    if ([d doubleForKey:@"lpz.resumeUntil"] < [NSDate date].timeIntervalSince1970) {
+        [d removeObjectForKey:@"lpz.resumeAppId"];
+        return;
+    }
+    // Só com o app na frente, nesta tela e com o PC respondendo.
+    if ([UIApplication sharedApplication].applicationState != UIApplicationStateActive) return;
+    if (self.navigationController.topViewController != self || self.presentedViewController != nil) return;
+    if (_selectedHost == nil || _selectedHost.state != StateOnline || _selectedHost.pairState != PairStatePaired) return;
+    TemporaryApp* target = nil;
+    for (TemporaryApp* app in _selectedHost.appList) {
+        if ([app.id isEqualToString:appId]) { target = app; break; }
+    }
+    if (target == nil || [UIAppView lpzIsPowerApp:target]) return;
+    [d removeObjectForKey:@"lpz.resumeAppId"];
+    Log(LOG_I, @"Lpz: reconectando em %@", target.name);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self.navigationController.topViewController != self) return;
+        [self->_appManager stopRetrieving];
+        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"lpz.powerLaunch"];
+        [self prepareToStreamApp:target];
+        [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+    });
+}
+#endif
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
     UICollectionViewCell* cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"AppCell" forIndexPath:indexPath];

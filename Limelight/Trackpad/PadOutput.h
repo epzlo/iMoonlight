@@ -44,6 +44,12 @@ enum {
     PadVkF1 = 0x70,
     PadVkF2 = 0x71,
     PadVkF4 = 0x73,
+    PadVkVolumeMute = 0xAD,
+    PadVkVolumeDown = 0xAE,
+    PadVkVolumeUp = 0xAF,
+    PadVkMediaNext = 0xB0,
+    PadVkMediaPrev = 0xB1,
+    PadVkMediaPlayPause = 0xB3,
     PadVkShift = 0xA0,
     PadVkCtrl = 0xA2,
     PadVkAlt = 0xA4,
@@ -63,6 +69,9 @@ typedef NS_ENUM(NSInteger, PadSpecialKey) {
     PadSpecialClearAll,
 };
 
+/// Posted on every absolute cursor move (Lpz Remote: o anel que mostra o cursor na imagem).
+extern NSString* const PadCursorMovedNotification;
+
 @interface PadOutput : NSObject
 
 + (instancetype)shared;
@@ -80,7 +89,7 @@ typedef NS_ENUM(NSInteger, PadSpecialKey) {
 /// Cursor position in stream pixels (valid while tracksCursor).
 @property (nonatomic, readonly) CGPoint cursorPosition;
 @property (nonatomic, readonly) CGSize streamSize;
-/// Puts the cursor at this point, in stream pixels.
+/// Puts the cursor at this point, in stream pixels. Posts PadCursorMovedNotification.
 - (void)moveCursorTo:(CGPoint)point;
 - (void)click;
 - (void)rightClick;
@@ -100,6 +109,8 @@ typedef NS_ENUM(NSInteger, PadSpecialKey) {
 /// como teclas mortas (' + a = á, ~ + a = ã, ^ + e = ê, ' + c = ç) e as próprias ' " ` ~ ^
 /// como tecla + espaço, o que funciona em qualquer app do KDE; o resto vai como texto UTF-8.
 - (void)typeText:(NSString*)text;
+/// "Ctrl+Alt+T" -> códigos de tecla; nil se algum nome não for reconhecido.
++ (nullable NSArray<NSNumber*>*)codesForCombo:(NSString*)combo;
 - (void)special:(PadSpecialKey)key;
 
 /// Lets go of anything still held, e.g. when the stream ends mid-drag.

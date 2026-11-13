@@ -4,6 +4,7 @@
 //
 
 #import "PadSettings.h"
+#import <Network/Network.h>
 
 NSString* const PadKeySensitivity = @"pad.sensitivity";
 NSString* const PadKeyAcceleration = @"pad.acceleration";
@@ -21,6 +22,10 @@ NSString* const PadKeyShowHints = @"pad.showHints";
 NSString* const PadKeyPortuguese = @"pad.portuguese";
 NSString* const PadKeyDeadKeys = @"pad.deadKeys";
 NSString* const PadKeyVideoShare = @"pad.videoShare";
+NSString* const PadKeyShortcuts = @"lpz.shortcuts";
+NSString* const PadKeyCursorMarker = @"lpz.cursorMarker";
+NSString* const PadKeyNetworkProfile = @"lpz.networkProfile";
+NSString* const PadKeyAutoReconnect = @"lpz.autoReconnect";
 
 NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotification";
 
@@ -44,6 +49,10 @@ NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotificatio
             PadKeyPortuguese: @YES,
             PadKeyDeadKeys: @YES,
             PadKeyVideoShare: @0.0f,
+            PadKeyShortcuts: @"Konsole = Ctrl+Alt+T\nArquivos = Super+E\nBloquear = Super+L",
+            PadKeyCursorMarker: @YES,
+            PadKeyNetworkProfile: @0,
+            PadKeyAutoReconnect: @YES,
         }];
     }
 }
@@ -64,6 +73,46 @@ NSString* const PadSettingsChangedNotification = @"PadSettingsChangedNotificatio
 + (BOOL)portuguese { return [self boolForKey:PadKeyPortuguese]; }
 + (BOOL)deadKeys { return [self boolForKey:PadKeyDeadKeys]; }
 + (float)videoShare { return [self floatForKey:PadKeyVideoShare]; }
++ (NSString*)shortcuts { return [[NSUserDefaults standardUserDefaults] stringForKey:PadKeyShortcuts] ?: @""; }
++ (void)setShortcuts:(NSString*)text {
+    [[NSUserDefaults standardUserDefaults] setObject:text forKey:PadKeyShortcuts];
+    [[NSNotificationCenter defaultCenter] postNotificationName:PadSettingsChangedNotification object:nil];
+}
++ (BOOL)cursorMarker { return [self boolForKey:PadKeyCursorMarker]; }
++ (PadNetworkProfile)networkProfile { return (PadNetworkProfile)[self integerForKey:PadKeyNetworkProfile fallback:0]; }
++ (BOOL)autoReconnect { return [self boolForKey:PadKeyAutoReconnect]; }
+
+static nw_path_monitor_t lpzMonitor;
+static volatile BOOL lpzCellular;
+
++ (void)startNetworkWatch {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        lpzMonitor = nw_path_monitor_create();
+        nw_path_monitor_set_queue(lpzMonitor, dispatch_get_main_queue());
+        nw_path_monitor_set_update_handler(lpzMonitor, ^(nw_path_t path) {
+            // Com a Tailscale ligada o caminho passa por um túnel; o que importa é a interface por baixo.
+            BOOL wifi = nw_path_uses_interface_type(path, nw_interface_type_wifi) ||
+                        nw_path_uses_interface_type(path, nw_interface_type_wired);
+            lpzCellular = !wifi && nw_path_uses_interface_type(path, nw_interface_type_cellular);
+        });
+        nw_path_monitor_start(lpzMonitor);
+    });
+}
+
++ (BOOL)onCellular {
+    [self startNetworkWatch];
+    return lpzCellular;
+}
+
++ (BOOL)useSaverQuality {
+    PadNetworkProfile p = [self networkProfile];
+    return p == PadNetworkSaver || (p == PadNetworkAuto && [self onCellular]);
+}
+
++ (void)setNetworkProfile:(PadNetworkProfile)profile {
+    [self setInteger:profile forKey:PadKeyNetworkProfile];
+}
 
 + (float)floatForKey:(NSString*)key {
     return [[NSUserDefaults standardUserDefaults] floatForKey:key];
