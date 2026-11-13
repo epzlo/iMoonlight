@@ -810,6 +810,7 @@ static NSString* lpzCleanTranscription(SFTranscription* t) {
 
     NSMutableArray<NSString*>* tokens = [NSMutableArray array];
     NSString* lastCore = nil;
+    BOOL lastAuto = NO; // a última palavra ganhou pontuação só pela pausa
     for (NSUInteger i = 0; i < segs.count; i++) {
         SFTranscriptionSegment* g = segs[i];
         // O pedaço do texto formatado desta palavra até a próxima (inclui a pontuação dela).
@@ -826,10 +827,16 @@ static NSString* lpzCleanTranscription(SFTranscription* t) {
         if (timed && i + 1 < segs.count) gapAfter = segs[i + 1].timestamp - (g.timestamp + g.duration);
 
         BOOL filler = [lpzFillers() containsObject:core] ||
-                      ([core isEqualToString:@"é"] && timed && gapBefore > 0.35 && gapAfter > 0.35);
+                      ([core isEqualToString:@"é"] && timed && segs.count > 1 && gapBefore > 0.35 && gapAfter > 0.35);
         BOOL stutter = lastCore != nil && [core isEqualToString:lastCore] && ![lpzRepeatable() containsObject:core] &&
                        (!timed || gapBefore < 1.0);
         if (filler || stutter) {
+            // A pausa antes de uma hesitação não é fim de frase: tira a pontuação que ela criou.
+            if (lastAuto && tokens.count > 0) {
+                NSString* prev = tokens.lastObject;
+                tokens[tokens.count - 1] = [prev substringToIndex:prev.length - 1];
+                lastAuto = NO;
+            }
             // A pontuação que vinha grudada nela passa para a palavra anterior.
             NSString* punct = [tail stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
             if (punct.length > 0 && tokens.count > 0 && !lpzEndsWithPunctuation(tokens.lastObject)) {
@@ -838,9 +845,10 @@ static NSString* lpzCleanTranscription(SFTranscription* t) {
             continue;
         }
         NSString* token = chunk;
+        lastAuto = NO;
         if (timed && i + 1 < segs.count && !lpzEndsWithPunctuation(token)) {
-            if (gapAfter >= 1.5) token = [token stringByAppendingString:@"."];
-            else if (gapAfter >= 0.8) token = [token stringByAppendingString:@","];
+            if (gapAfter >= 1.5) { token = [token stringByAppendingString:@"."]; lastAuto = YES; }
+            else if (gapAfter >= 0.8) { token = [token stringByAppendingString:@","]; lastAuto = YES; }
         }
         [tokens addObject:token];
         lastCore = core;
@@ -885,7 +893,9 @@ static NSString* lpzPolishDictation(NSString* raw) {
     NSArray<NSTextCheckingResult*>* found = [words matchesInString:t options:0 range:NSMakeRange(0, t.length)];
     for (NSTextCheckingResult* m in [found reverseObjectEnumerator]) {
         NSString* w = [t substringWithRange:m.range];
-        NSString* fixed = w.length > 1 ? [pt correct:w.lowercaseString previous:nil] : nil;
+        // Só completa palavra sem acento: o acento que o reconhecimento pôs veio do contexto e fica.
+        BOOL plain = [lpzFold(w) isEqualToString:w.lowercaseString];
+        NSString* fixed = (w.length > 1 && plain) ? [pt correct:w.lowercaseString previous:nil] : nil;
         if (fixed != nil && ![fixed isEqualToString:w.lowercaseString] && [lpzFold(fixed) isEqualToString:lpzFold(w)]) {
             BOOL upper = [[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[w characterAtIndex:0]];
             if (upper) fixed = [[[fixed substringToIndex:1] uppercaseString] stringByAppendingString:[fixed substringFromIndex:1]];
@@ -1053,7 +1063,8 @@ static NSString* lpzPolishDictation(NSString* raw) {
 }
 
 - (void)startListening {
-    if (_listening || _edited || self.presentingViewController == nil) return;
+    // A permissão pode chegar depois que a tela já foi fechada: aí o microfone não liga.
+    if (_listening || _edited || _delivered || self.presentingViewController == nil || self.isBeingDismissed) return;
     _recognizer = [[SFSpeechRecognizer alloc] initWithLocale:[NSLocale localeWithLocaleIdentifier:@"pt-BR"]];
     if (_recognizer == nil || !_recognizer.isAvailable) {
         [self showProblem:@"O reconhecimento em português não está disponível agora (precisa de internet)."];
@@ -1193,8 +1204,12 @@ static NSString* lpzPolishDictation(NSString* raw) {
     }
     [self stopListening];
     _sendEnter = enter;
-    if (send) [self deliver:_text.text];
-    else [self dismissViewControllerAnimated:YES completion:nil];
+    if (send) {
+        [self deliver:_text.text];
+    } else {
+        _delivered = YES; // Cancelar: nada que ainda chegue do reconhecimento é enviado
+        [self dismissViewControllerAnimated:YES completion:nil];
+    }
 }
 
 - (void)deliver:(NSString*)raw {

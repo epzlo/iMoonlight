@@ -101,9 +101,15 @@ typedef NS_ENUM(NSInteger, HybridMode) { HybridUndecided, HybridNear, HybridFar 
 
 #if !TARGET_OS_TV
 /// O ponto da imagem um pouco acima do dedo (a distância é fixa na tela, com ou sem zoom).
+/// Perto do pé da imagem a distância diminui até zero, senão a última faixa da tela do PC
+/// (onde fica o painel do KDE) ficaria fora do alcance do dedo.
 - (CGPoint)liftedPoint:(CGPoint)point {
     CGPoint onScreen = [view convertPoint:point toView:nil];
-    onScreen.y -= CURSOR_LIFT;
+    UIView* frame = view.superview != nil ? view.superview : view;
+    CGFloat bottom = CGRectGetMaxY([frame convertRect:frame.bounds toView:nil]);
+    if (view.window != nil) bottom = MIN(bottom, CGRectGetMaxY(view.window.bounds));
+    CGFloat distance = MAX(0, bottom - onScreen.y);
+    onScreen.y -= CURSOR_LIFT * MIN(1, distance / (2 * CURSOR_LIFT));
     return [view convertPoint:onScreen fromView:nil];
 }
 

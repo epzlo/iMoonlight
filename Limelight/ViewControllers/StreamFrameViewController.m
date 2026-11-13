@@ -467,11 +467,22 @@ static const CGFloat DIVIDER_H = 22;
     CGPoint inStream = [_streamView viewPointForStreamPixel:out.cursorPosition streamSize:out.streamSize];
     CGPoint p = [_streamView convertPoint:inStream toView:_videoHost];
     CGRect frame = _videoHost.bounds;
+    // Fora da moldura: puxa de uma vez até o cursor aparecer. Na faixa de 12% perto da borda:
+    // anda aos poucos (35% por movimento, até 8 pt), para o dedo parado na borda não fazer a
+    // imagem disparar até o fim.
+    CGRect inside = CGRectInset(frame, 6, 6);
     CGFloat mx = MAX(28, frame.size.width * 0.12), my = MAX(28, frame.size.height * 0.12);
     CGRect keep = CGRectInset(frame, mx, my);
-    CGFloat dx = p.x < CGRectGetMinX(keep) ? CGRectGetMinX(keep) - p.x : p.x > CGRectGetMaxX(keep) ? CGRectGetMaxX(keep) - p.x : 0;
-    CGFloat dy = p.y < CGRectGetMinY(keep) ? CGRectGetMinY(keep) - p.y : p.y > CGRectGetMaxY(keep) ? CGRectGetMaxY(keep) - p.y : 0;
-    if (dx == 0 && dy == 0) return;
+    CGFloat hx = p.x < CGRectGetMinX(inside) ? CGRectGetMinX(inside) - p.x : p.x > CGRectGetMaxX(inside) ? CGRectGetMaxX(inside) - p.x : 0;
+    CGFloat hy = p.y < CGRectGetMinY(inside) ? CGRectGetMinY(inside) - p.y : p.y > CGRectGetMaxY(inside) ? CGRectGetMaxY(inside) - p.y : 0;
+    p.x += hx;
+    p.y += hy;
+    CGFloat sx = p.x < CGRectGetMinX(keep) ? CGRectGetMinX(keep) - p.x : p.x > CGRectGetMaxX(keep) ? CGRectGetMaxX(keep) - p.x : 0;
+    CGFloat sy = p.y < CGRectGetMinY(keep) ? CGRectGetMinY(keep) - p.y : p.y > CGRectGetMaxY(keep) ? CGRectGetMaxY(keep) - p.y : 0;
+    sx = MAX(-8, MIN(8, sx * 0.35));
+    sy = MAX(-8, MIN(8, sy * 0.35));
+    CGFloat dx = hx + sx, dy = hy + sy;
+    if (fabs(dx) < 0.25 && fabs(dy) < 0.25) return;
     [self setZoom:_zoom offset:CGPointMake(_zoomOffset.x + dx, _zoomOffset.y + dy)];
 }
 
