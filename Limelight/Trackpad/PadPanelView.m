@@ -758,6 +758,96 @@ static NSString* lpzFold(NSString* w) {
     return [w stringByFoldingWithOptions:NSDiacriticInsensitiveSearch | NSCaseInsensitiveSearch locale:nil];
 }
 
+/// Enrolações que nunca são palavra de verdade.
+static NSSet<NSString*>* lpzFillers(void) {
+    static NSSet* set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        set = [NSSet setWithArray:@[@"ah", @"ahn", @"ahh", @"aah", @"hum", @"humm", @"hmm", @"hm", @"uhm", @"uh", @"hã",
+                                    @"ãh", @"ã", @"ãã", @"eh", @"éh", @"éé", @"ééé", @"ehh", @"hein", @"uhum"]];
+    });
+    return set;
+}
+
+/// Palavras que podem se repetir de propósito ("não não", "muito muito").
+static NSSet<NSString*>* lpzRepeatable(void) {
+    static NSSet* set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        set = [NSSet setWithArray:@[@"não", @"muito", @"bem", @"já", @"sim", @"pouco", @"tá", @"bora", @"vai", @"corre", @"calma", @"logo"]];
+    });
+    return set;
+}
+
+/// Durante a fala: só tira as enrolações óbvias, para o texto ao vivo já vir limpo.
+static NSString* lpzLiveClean(NSString* text) {
+    static NSRegularExpression* re;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        re = [NSRegularExpression regularExpressionWithPattern:@"(?i)(^|\\s)(ah+n?|a+h|hu+m+|hm+|uhm|uh+|hã+|ãh|ã+|eh+|éh|éé+|hein)[,.…!?]*(?=\\s|$)"
+                                                       options:0 error:nil];
+    });
+    NSString* out = [re stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@"$1"];
+    out = [[NSRegularExpression regularExpressionWithPattern:@"\\s{2,}" options:0 error:nil]
+        stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
+    return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+}
+
+static BOOL lpzEndsWithPunctuation(NSString* s) {
+    if (s.length == 0) return YES;
+    return [@".,;:!?…" containsString:[s substringFromIndex:s.length - 1]];
+}
+
+/// Texto final a partir das palavras e dos tempos de cada uma: tira enrolações ("ah", "hum", e o
+/// "é" solto entre pausas), tira gaguejo ("eu eu vou" → "eu vou") e usa as pausas para pontuar
+/// onde o reconhecimento não pontuou (pausa média = vírgula, pausa longa = ponto).
+static NSString* lpzCleanTranscription(SFTranscription* t) {
+    NSString* full = t.formattedString;
+    NSArray<SFTranscriptionSegment*>* segs = t.segments;
+    if (segs.count == 0) return lpzLiveClean(full);
+    BOOL timed = NO;
+    for (SFTranscriptionSegment* g in segs) if (g.duration > 0) { timed = YES; break; }
+
+    NSMutableArray<NSString*>* tokens = [NSMutableArray array];
+    NSString* lastCore = nil;
+    for (NSUInteger i = 0; i < segs.count; i++) {
+        SFTranscriptionSegment* g = segs[i];
+        // O pedaço do texto formatado desta palavra até a próxima (inclui a pontuação dela).
+        NSUInteger start = g.substringRange.location;
+        NSUInteger end = i + 1 < segs.count ? segs[i + 1].substringRange.location : full.length;
+        if (start > full.length || end > full.length || end < start) continue;
+        NSString* chunk = [[full substringWithRange:NSMakeRange(start, end - start)]
+                           stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString* core = [[g.substring stringByTrimmingCharactersInSet:[NSCharacterSet punctuationCharacterSet]] lowercaseString];
+        NSString* tail = chunk.length > g.substring.length && [chunk hasPrefix:g.substring] ? [chunk substringFromIndex:g.substring.length] : @"";
+
+        NSTimeInterval gapBefore = 9, gapAfter = 9;
+        if (timed && i > 0) gapBefore = g.timestamp - (segs[i - 1].timestamp + segs[i - 1].duration);
+        if (timed && i + 1 < segs.count) gapAfter = segs[i + 1].timestamp - (g.timestamp + g.duration);
+
+        BOOL filler = [lpzFillers() containsObject:core] ||
+                      ([core isEqualToString:@"é"] && timed && gapBefore > 0.35 && gapAfter > 0.35);
+        BOOL stutter = lastCore != nil && [core isEqualToString:lastCore] && ![lpzRepeatable() containsObject:core] &&
+                       (!timed || gapBefore < 1.0);
+        if (filler || stutter) {
+            // A pontuação que vinha grudada nela passa para a palavra anterior.
+            NSString* punct = [tail stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            if (punct.length > 0 && tokens.count > 0 && !lpzEndsWithPunctuation(tokens.lastObject)) {
+                tokens[tokens.count - 1] = [tokens.lastObject stringByAppendingString:punct];
+            }
+            continue;
+        }
+        NSString* token = chunk;
+        if (timed && i + 1 < segs.count && !lpzEndsWithPunctuation(token)) {
+            if (gapAfter >= 1.5) token = [token stringByAppendingString:@"."];
+            else if (gapAfter >= 0.8) token = [token stringByAppendingString:@","];
+        }
+        [tokens addObject:token];
+        lastCore = core;
+    }
+    return [tokens componentsJoinedByString:@" "];
+}
+
 static NSString* lpzPolishDictation(NSString* raw) {
     NSMutableString* t = [raw mutableCopy];
     // Mais longos primeiro, para "ponto e vírgula" não virar "ponto e ,".
@@ -774,6 +864,11 @@ static NSString* lpzPolishDictation(NSString* raw) {
             replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length)
                       withTemplate:[NSRegularExpression escapedTemplateForString:with]];
     }
+    // Pausa e comando falado juntos dão pontuação dobrada ("casa, ,"): fica a mais forte.
+    [[NSRegularExpression regularExpressionWithPattern:@"[,;:]\\s*([,.;:!?])" options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"$1"];
+    [[NSRegularExpression regularExpressionWithPattern:@"([.!?])\\s*," options:0 error:nil]
+        replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"$1"];
     // Espaço certo em volta da pontuação.
     [[NSRegularExpression regularExpressionWithPattern:@" +([,.;:!?)])" options:0 error:nil]
         replaceMatchesInString:t options:0 range:NSMakeRange(0, t.length) withTemplate:@"$1"];
@@ -838,6 +933,9 @@ static NSString* lpzPolishDictation(NSString* raw) {
     AVAudioEngine* _engine;
     BOOL _listening;
     BOOL _edited;
+    // Enviar no meio da fala espera o resultado final (com os tempos das palavras) por até 2,5 s.
+    BOOL _sendWhenFinal, _sendEnter, _delivered;
+    SFTranscription* _last;
 }
 
 - (instancetype)init {
@@ -1011,13 +1109,21 @@ static NSString* lpzPolishDictation(NSString* raw) {
         dispatch_async(dispatch_get_main_queue(), ^{
             typeof(self) me = weakSelf;
             if (me == nil) return;
+            if (result != nil) me->_last = result.bestTranscription;
             if (result != nil && !me->_edited) {
-                me->_text.text = result.bestTranscription.formattedString;
+                me->_text.text = result.isFinal ? lpzPolishDictation(lpzCleanTranscription(result.bestTranscription))
+                                                : lpzLiveClean(result.bestTranscription.formattedString);
                 me->_placeholder.hidden = me->_text.text.length > 0;
             }
             if (err != nil || result.isFinal) {
-                if (!me->_edited && me->_text.text.length > 0) me->_text.text = lpzPolishDictation(me->_text.text);
+                if (!me->_edited && !result.isFinal && me->_last != nil) {
+                    me->_text.text = lpzPolishDictation(lpzCleanTranscription(me->_last));
+                }
                 [me stopListening];
+                if (me->_sendWhenFinal) {
+                    [me deliver:me->_text.text];
+                    return;
+                }
                 me->_status.text = me->_text.text.length > 0 ? @"Pronto. Corrija se quiser e envie." : @"Não ouvi nada. Toque em Cancelar ou fale de novo abrindo a Voz.";
             }
         });
@@ -1067,15 +1173,38 @@ static NSString* lpzPolishDictation(NSString* raw) {
 }
 
 - (void)finish:(BOOL)send enter:(BOOL)enter {
-    BOOL wasListening = _listening;
-    [self stopListening];
     [_text resignFirstResponder];
-    // Enviado no meio da fala: o acabamento ainda não foi feito.
-    NSString* text = (wasListening && !_edited) ? lpzPolishDictation(_text.text) : _text.text;
-    text = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (send && _listening && !_edited) {
+        // Ainda ouvindo: fecha o microfone e espera o resultado final, que traz as pausas.
+        if (_sendWhenFinal) return;
+        _sendWhenFinal = YES;
+        _sendEnter = enter;
+        _status.text = @"Finalizando o texto…";
+        [_engine stop];
+        [_engine.inputNode removeTapOnBus:0];
+        [_request endAudio];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (self->_delivered) return;
+            NSString* text = self->_last != nil ? lpzPolishDictation(lpzCleanTranscription(self->_last)) : self->_text.text;
+            [self stopListening];
+            [self deliver:text];
+        });
+        return;
+    }
+    [self stopListening];
+    _sendEnter = enter;
+    if (send) [self deliver:_text.text];
+    else [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)deliver:(NSString*)raw {
+    if (_delivered) return;
+    _delivered = YES;
+    NSString* text = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL enter = _sendEnter;
     void (^onSend)(NSString*, BOOL) = self.onSend;
     [self dismissViewControllerAnimated:YES completion:^{
-        if (send && onSend != nil && (text.length > 0 || enter)) onSend(text, enter);
+        if (onSend != nil && (text.length > 0 || enter)) onSend(text, enter);
     }];
 }
 
